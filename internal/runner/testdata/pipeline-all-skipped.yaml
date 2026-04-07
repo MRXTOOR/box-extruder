@@ -1,0 +1,53 @@
+# Интеграционный конфиг: все внешние инструменты отключаются флагами runner (CI).
+version: "1.0"
+job:
+  name: "pipeline-integration"
+targets:
+  - type: "web"
+    baseUrl: "https://example.com"
+scope:
+  allow: [".*"]
+  deny: []
+auth:
+  strategy: "none"
+scan:
+  plan:
+    - stepType: "katana"
+      enabled: true
+    - stepType: "zapBaseline"
+      enabled: true
+    - stepType: "nucleiTemplates"
+      enabled: true
+      nucleiEngine: "cli"
+      nucleiIncludeDiscoveredURLs: true
+      templatePaths: ["nonexistent-templates"]
+budgets:
+  discovery:
+    maxDepth: 1
+    maxUrls: 20
+    durationCrawlSecs: 10
+  passive:
+    passiveWaitDelaySecs: 1
+    passiveRuleDefaultSeverity: "WARN"
+  active:
+    maxRequestsTotal: 10
+    concurrency: 2
+    rateLimitRps: 5
+  verification:
+    maxVerifications: 1
+    evidenceThreshold: "low"
+noiseControl:
+  dedupe:
+    locationKey: "endpoint+method+paramsNormalized"
+    paramNormalization: "basic"
+  suppression:
+    allowlist: []
+    exclude: []
+  falsePositiveWorkflow:
+    progressiveConfirmation: true
+outputs:
+  formats: ["json"]
+  paths:
+    artifactsDir: "artifacts"
+execution:
+  dummyFindings: true

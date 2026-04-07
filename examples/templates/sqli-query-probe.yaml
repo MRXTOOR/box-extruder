@@ -1,0 +1,16 @@
+# Встроенный движок Nuclei: GET /?q=<строка из artifacts/payloads/sqli.txt>
+# Путь payloadFile относителен к корню job (подставляется оркестратором).
+id: dast-sqli-builtin-probes
+name: SQLi query param probe (builtin)
+severity: info
+description: "Перебор SQLi-пейлоадов из artifacts/payloads/sqli.txt"
+http:
+  - method: GET
+    path: "/"
+    payloadQueryParam: "q"
+    payloadFile: "artifacts/payloads/sqli.txt"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "<"

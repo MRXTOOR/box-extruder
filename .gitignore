@@ -1,0 +1,41 @@
+# Build artifacts
+bin/
+dist/
+build/
+
+# Go
+*.test
+*.out
+coverage.*
+*.coverprofile
+
+# Logs
+*.log
+logs/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# DAST runtime artifacts
+work/jobs/
+work/tmp/
+work/cache/
+work/**/*.jsonl
+work/**/zap-out/
+work/**/reports/report.html
+work/**/reports/report.docx
+
+# Common caches
+.cache/
+tmp/
+

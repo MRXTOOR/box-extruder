@@ -1,0 +1,13 @@
+# Универсальная проверка «страница отвечает HTML» — подходит для staging, не только example.com
+id: example-html-response
+name: Root returns HTML-like body
+severity: info
+description: "Nuclei-like: на корне есть типичный HTML-маркер (подставьте свой path при необходимости)."
+http:
+  - method: GET
+    path: "/"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "<html"

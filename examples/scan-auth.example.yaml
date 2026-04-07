@@ -1,0 +1,41 @@
+# Copy to scan-auth.yaml and set secret:// env vars (e.g. DAST_BEARER_TOKEN).
+version: "1.0"
+job:
+  name: "dast-auth-demo"
+targets:
+  - type: "web"
+    baseUrl: "https://staging.example.com"
+scope:
+  allow: [".*"]
+  deny: []
+auth:
+  strategy: "providerChain"
+  providers:
+    - type: "header"
+      id: "bearer"
+      secretsRef:
+        headerValue: "secret://DAST_BEARER_TOKEN"
+      config:
+        headerName: "Authorization"
+      verification:
+        type: "endpointCheck"
+        details:
+          url: "https://staging.example.com/me"
+          expectedStatus: 200
+scan:
+  preset: "Fast"
+noiseControl:
+  dedupe:
+    locationKey: "endpoint+method+paramsNormalized"
+    paramNormalization: "basic"
+  suppression:
+    allowlist: []
+    exclude: []
+  falsePositiveWorkflow:
+    progressiveConfirmation: true
+outputs:
+  formats: ["json", "md"]
+  paths:
+    artifactsDir: "artifacts"
+execution:
+  dummyFindings: false

@@ -1,0 +1,29 @@
+version: "1.0"
+job:
+  name: "test-job"
+targets:
+  - type: "web"
+    baseUrl: "https://example.com"
+scope:
+  allow: [".*"]
+auth:
+  strategy: "none"
+scan:
+  plan:
+    - stepType: "crawl"
+      enabled: true
+noiseControl:
+  dedupe:
+    locationKey: "endpoint+method+paramsNormalized"
+    paramNormalization: "basic"
+  suppression:
+    allowlist: []
+    exclude: []
+  falsePositiveWorkflow:
+    progressiveConfirmation: true
+outputs:
+  formats: ["json"]
+  paths:
+    artifactsDir: "artifacts"
+execution:
+  dummyFindings: true

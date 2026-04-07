@@ -1,0 +1,19 @@
+# OWASP Juice Shop — намеренно уязвимое веб-приложение для тренировок и CTF.
+# Образ: https://hub.docker.com/r/bkimminich/juice-shop
+#
+# Запуск:
+#   docker compose -f examples/docker-compose.juice-shop.yaml up -d
+# Остановка:
+#   docker compose -f examples/docker-compose.juice-shop.yaml down
+#
+# UI: http://127.0.0.1:3000/  (первый старт может занять ~1 минуту)
+#
+# Используйте только на своих машинах / в изолированных лабораториях.
+
+services:
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    container_name: juice-shop
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

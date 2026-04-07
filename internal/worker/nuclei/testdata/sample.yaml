@@ -1,0 +1,11 @@
+id: utest-match
+name: unit test matcher
+severity: low
+http:
+  - method: GET
+    path: "/hello"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "HELLO_WORLD"

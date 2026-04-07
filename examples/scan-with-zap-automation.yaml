@@ -1,0 +1,85 @@
+# Пример: ZAP под капотом через Automation Framework — обычный Spider + Ajax Spider (SPA),
+# ожидание passive scan, отчёт traditional-json.
+#
+# Запуск (Docker, тяжелее по CPU/RAM из‑за браузера для Ajax):
+#   ./scan run -f examples/scan-with-zap-automation.yaml -work work
+#
+# Локальный ZAP (установленный OWASP ZAP, в PATH есть zap.sh):
+#   export DAST_ZAP_LOCAL=1
+#   # при необходимости: export DAST_ZAP_SH=/opt/zaproxy/zap.sh
+#   ./scan run -f examples/scan-with-zap-automation.yaml -work work
+#
+# Образ по умолчанию: ghcr.io/zaproxy/zaproxy:stable (override: DAST_ZAP_DOCKER_IMAGE или zapDockerImage в шаге).
+# Доп. опции Docker (браузер в контейнере): export DAST_ZAP_DOCKER_EXTRA="--shm-size=2g"
+#
+# Свой сценарий ZAP целиком: укажите zapAutomationFile: "my-automation.yaml" рядом с этим конфигом.
+
+version: "1.0"
+job:
+  name: "zap-af-spa-demo"
+
+targets:
+  - type: "web"
+    baseUrl: "https://httpbin.org"
+
+scope:
+  allow:
+    - "^https://httpbin\\.org/.*"
+  deny: []
+
+auth:
+  strategy: "none"
+
+scan:
+  preset: "Fast"
+  plan:
+    - stepType: "zapBaseline"
+      enabled: true
+      zapAutomationFramework: true
+      zapSpiderTraditional: true
+      zapSpiderAjax: true
+      zapMaxSpiderMinutes: 2
+      zapPassiveWaitSeconds: 20
+      zapAjaxBrowserId: "firefox-headless"
+    - stepType: "nucleiTemplates"
+      enabled: true
+      templatePaths:
+        - "templates"
+    - stepType: "verification"
+      enabled: true
+
+budgets:
+  discovery:
+    maxDepth: 2
+    maxUrls: 100
+    durationCrawlSecs: 120
+  passive:
+    passiveWaitDelaySecs: 10
+    passiveRuleDefaultSeverity: "WARN"
+  active:
+    maxRequestsTotal: 100
+    maxRequestsPerEndpoint: 20
+    maxPayloadsPerRule: 5
+    concurrency: 2
+    rateLimitRps: 5
+  verification:
+    maxVerifications: 30
+    evidenceThreshold: "low"
+
+noiseControl:
+  dedupe:
+    locationKey: "endpoint+method+paramsNormalized"
+    paramNormalization: "basic"
+  suppression:
+    allowlist: []
+    exclude: []
+  falsePositiveWorkflow:
+    progressiveConfirmation: true
+
+outputs:
+  formats: ["json", "md"]
+  paths:
+    artifactsDir: "artifacts"
+
+execution:
+  dummyFindings: false

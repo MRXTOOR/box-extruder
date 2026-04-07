@@ -1,0 +1,32 @@
+{
+  "site": [
+    {
+      "@name": "https://example.com",
+      "alerts": [
+        {
+          "pluginid": "10202",
+          "alert": "Absence of Anti-CSRF Tokens",
+          "name": "Absence of Anti-CSRF Tokens",
+          "riskcode": "2",
+          "riskdesc": "Medium (Low)",
+          "confidence": "1",
+          "instances": [
+            {
+              "uri": "https://example.com/forms/post",
+              "method": "GET",
+              "param": "",
+              "evidence": "<form>"
+            },
+            {
+              "uri": "https://example.com/login",
+              "method": "POST",
+              "param": "user",
+              "evidence": ""
+            }
+          ],
+          "solution": "Use CSRF tokens"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DAST — оркестратор сканов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #070a0e;
+      --bg1: #0c1117;
+      --surface: rgba(22, 27, 34, 0.72);
+      --surface2: rgba(13, 17, 23, 0.85);
+      --border: rgba(48, 54, 61, 0.85);
+      --border-glow: rgba(88, 166, 255, 0.12);
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --dim: #6e7681;
+      --accent: #58a6ff;
+      --accent2: #388bfd;
+      --ok: #3fb950;
+      --ok-bg: rgba(35, 134, 54, 0.14);
+      --bad: #f85149;
+      --bad-bg: rgba(248, 81, 73, 0.1);
+      --warn: #d29922;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --font: "DM Sans", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html { -webkit-font-smoothing: antialiased; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--text);
+      background: var(--bg0);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% -30%, rgba(56, 139, 253, 0.14), transparent 52%),
+        radial-gradient(ellipse 70% 50% at 100% 50%, rgba(163, 113, 247, 0.06), transparent 45%),
+        radial-gradient(ellipse 60% 40% at 0% 80%, rgba(63, 185, 80, 0.05), transparent 40%),
+        linear-gradient(180deg, var(--bg1) 0%, var(--bg0) 100%);
+    }
+
+    .noise {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      z-index: 0;
+    }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 28px 20px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(56, 139, 253, 0.2), rgba(163, 113, 247, 0.12));
+      border: 1px solid var(--border-glow);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 4px 20px rgba(56, 139, 253, 0.15);
+    }
+
+    .logo svg {
+      width: 22px;
+      height: 22px;
+      opacity: 0.95;
+    }
+
+    .brand h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin: 0;
+      line-height: 1.15;
+    }
+
+    .tagline {
+      margin: 4px 0 0;
+      font-size: 0.88rem;
+      color: var(--muted);
+      max-width: 36ch;
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--dim);
+    }
+
+    .pipeline span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+
+    .pipeline .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent2);
+    }
+
+    .pipeline .dot.g { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    .pipeline .dot.p { background: #a371f7; box-shadow: 0 0 10px #a371f7; }
+
+    .arrow {
+      color: var(--dim);
+      font-size: 0.65rem;
+      opacity: 0.7;
+    }
+
+    .card {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      box-shadow: var(--shadow);
+    }
+
+    .card-head {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+      margin: 0 0 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field:last-of-type { margin-bottom: 0; }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="url"] {
+      width: 100%;
+      padding: 11px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: rgba(13, 17, 23, 0.65);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.95rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    input::placeholder {
+      color: var(--dim);
+    }
+
+    input:hover {
+      border-color: rgba(88, 166, 255, 0.35);
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.18);
+    }
+
+    .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 520px) {
+      .row2 { grid-template-columns: 1fr; }
+      .pipeline { flex-wrap: wrap; justify-content: center; }
+    }
+
+    .btn-primary {
+      width: 100%;
+      margin-top: 18px;
+      padding: 14px 18px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: var(--font);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(165deg, var(--accent2) 0%, #1f6feb 50%, #1158c7 100%);
+      box-shadow: 0 4px 20px rgba(31, 111, 235, 0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+      transition: transform 0.12s, box-shadow 0.12s, opacity 0.12s;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 28px rgba(31, 111, 235, 0.42), inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .badge-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .badge.idle {
+      background: rgba(33, 38, 45, 0.9);
+      color: var(--muted);
+      border-color: var(--border);
+    }
+
+    .badge.ok {
+      background: var(--ok-bg);
+      color: var(--ok);
+      border-color: rgba(35, 134, 54, 0.45);
+    }
+
+    .badge.fail {
+      background: var(--bad-bg);
+      color: var(--bad);
+      border-color: rgba(248, 81, 73, 0.4);
+    }
+
+    .badge .icon {
+      font-size: 1.05rem;
+      line-height: 1;
+    }
+
+    .badge.pending .icon {
+      display: inline-block;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .badge.pending .icon { animation: none; }
+    }
+
+    .job-status {
+      font-size: 0.78rem;
+      font-weight: 600;
+      font-family: var(--mono);
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: rgba(13, 17, 23, 0.65);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .job-status.run { color: var(--warn); border-color: rgba(210, 153, 34, 0.35); }
+    .job-status.ok { color: var(--ok); border-color: rgba(35, 134, 54, 0.35); }
+    .job-status.bad { color: var(--bad); border-color: rgba(248, 81, 73, 0.35); }
+    .job-status.partial { color: #d4a72c; border-color: rgba(212, 167, 44, 0.35); }
+
+    details.panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(13, 17, 23, 0.5);
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    details.panel summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 14px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #c9d1d9;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    details.panel summary::-webkit-details-marker { display: none; }
+
+    details.panel summary::after {
+      content: "▾";
+      color: var(--muted);
+      font-size: 0.7rem;
+    }
+
+    details.panel[open] summary::after { content: "▴"; }
+
+    .panel-body {
+      max-height: 240px;
+      overflow: auto;
+      padding: 0 14px 14px;
+      border-top: 1px solid rgba(48, 54, 61, 0.6);
+    }
+
+    pre.raw {
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #9da7b0;
+    }
+
+    .hint {
+      font-size: 0.75rem;
+      color: var(--dim);
+      margin-top: 10px;
+      line-height: 1.45;
+    }
+
+    .links {
+      margin-top: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text);
+      text-decoration: none;
+      background: rgba(56, 139, 253, 0.1);
+      border: 1px solid rgba(56, 139, 253, 0.22);
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .links a:hover {
+      background: rgba(56, 139, 253, 0.18);
+      border-color: rgba(56, 139, 253, 0.4);
+    }
+
+    .links a::before {
+      content: "↗";
+      font-size: 0.75rem;
+      opacity: 0.7;
+    }
+
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 0 0 4px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-title-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    footer.foot {
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--dim);
+      padding-top: 8px;
+    }
+
+    .pipeline-loader[hidden] {
+      display: none !important;
+    }
+
+    .pipeline-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(7, 10, 14, 0.82);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .pipeline-loader__card {
+      width: min(420px, 100%);
+      padding: 1.5rem 1.35rem 1.35rem;
+      border-radius: var(--radius);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow), 0 0 0 1px rgba(88, 166, 255, 0.06);
+      text-align: center;
+    }
+
+    .pipeline-loader__title {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 4px;
+    }
+
+    .pipeline-loader__hint {
+      margin: 12px 0 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .pipeline-loader__rail {
+      position: relative;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(48, 54, 61, 0.95);
+      overflow: hidden;
+      margin: 14px 0 10px;
+    }
+
+    .pipeline-loader__beam {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 42%;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(56, 139, 253, 0.15),
+        var(--accent),
+        #a371f7,
+        rgba(163, 113, 247, 0.15),
+        transparent
+      );
+      animation: pipelineBeam 1.35s ease-in-out infinite;
+    }
+
+    @keyframes pipelineBeam {
+      0% { transform: translateX(-105%); }
+      100% { transform: translateX(320%); }
+    }
+
+    .pipeline-loader__steps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--dim);
+    }
+
+    .pipeline-loader__steps .pl-step {
+      animation: plStepGlow 1.95s ease-in-out infinite;
+    }
+
+    .pipeline-loader__steps .pl-step:nth-child(1) { animation-delay: 0s; }
+    .pipeline-loader__steps .pl-step:nth-child(3) { animation-delay: 0.65s; }
+    .pipeline-loader__steps .pl-step:nth-child(5) { animation-delay: 1.3s; }
+
+    @keyframes plStepGlow {
+      0%, 40%, 100% {
+        color: var(--dim);
+        text-shadow: none;
+        transform: scale(1);
+      }
+      20% {
+        color: var(--accent);
+        text-shadow: 0 0 14px rgba(88, 166, 255, 0.45);
+        transform: scale(1.04);
+      }
+    }
+
+    .pipeline-loader__arr {
+      opacity: 0.45;
+      font-size: 0.65rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pipeline-loader__beam { animation: none; opacity: 0.85; transform: translateX(40%); }
+      .pipeline-loader__steps .pl-step { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <div id="pipelineLoader" class="pipeline-loader" hidden>
+    <div class="pipeline-loader__card" role="status" aria-live="polite">
+      <p class="pipeline-loader__title">Пайплайн выполняется</p>
+      <div class="pipeline-loader__rail" aria-hidden="true">
+        <div class="pipeline-loader__beam"></div>
+      </div>
+      <div class="pipeline-loader__steps">
+        <span class="pl-step">Katana</span><span class="pipeline-loader__arr">→</span>
+        <span class="pl-step">ZAP</span><span class="pipeline-loader__arr">→</span>
+        <span class="pl-step">Nuclei</span>
+      </div>
+      <p class="pipeline-loader__hint" id="pipelineLoaderHint">Автодетект и сканирование…</p>
+    </div>
+  </div>
+  <div class="shell">
+    <header class="top">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="url(#g)" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M12 2v20M3 7l9 5 9-5" stroke="url(#g)" stroke-width="1.2" stroke-linecap="round"/>
+            <defs>
+              <linearGradient id="g" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#58a6ff"/>
+                <stop offset="1" stop-color="#a371f7"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div>
+          <h1>DAST</h1>
+          <p class="tagline">Автодетект логина, Katana → ZAP → Nuclei — один запуск из браузера.</p>
+        </div>
+      </div>
+      <div class="pipeline" title="Цепочка сканирования">
+        <span><span class="dot" aria-hidden="true"></span>Katana</span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <span><span class="dot g" aria-hidden="true"></span>ZAP</span>
+        <span class="arrow" aria-hidden="true">→</span>
+        <span><span class="dot p" aria-hidden="true"></span>Nuclei</span>
+      </div>
+    </header>
+
+    <section class="card" aria-labelledby="card-scan">
+      <p class="card-head" id="card-scan">Настройка цели</p>
+      <div class="field">
+        <label for="targetUrl">Target URL</label>
+        <input id="targetUrl" type="url" placeholder="https://example.com" autocomplete="url" />
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="login">Логин / Email</label>
+          <input id="login" type="text" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="password">Пароль</label>
+          <input id="password" type="password" autocomplete="current-password" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="authUrl">Auth URL <span style="color:var(--dim);font-weight:400">— опционально</span></label>
+        <input id="authUrl" type="text" placeholder="точный endpoint логина" />
+      </div>
+      <div class="field">
+        <label for="verifyUrl">Verify URL <span style="color:var(--dim);font-weight:400">— опционально</span></label>
+        <input id="verifyUrl" type="text" placeholder="/api/me или /profile" />
+      </div>
+      <button type="button" class="btn-primary" id="startBtn">Автодетект и запуск скана</button>
+    </section>
+
+    <section class="card">
+      <p class="card-head">Автодетект</p>
+      <div class="badge-row">
+        <span id="detectBadge" class="badge idle"><span class="icon">○</span> не запускался</span>
+      </div>
+      <details class="panel" id="tracePanel">
+        <summary>Полный trace (JSON)</summary>
+        <div class="panel-body">
+          <pre class="raw" id="traceFull">—</pre>
+        </div>
+      </details>
+      <p class="hint">Зелёная метка — логин и проверка сессии прошли. Красная — укажите Auth URL вручную или проверьте учётные данные.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-title-wrap">
+        <h2 class="section-title">Задача</h2>
+        <span id="jobStatusBar" class="job-status" title="Статус последней задачи">—</span>
+      </div>
+      <details class="panel" id="statusPanel" open>
+        <summary>Статус и логи</summary>
+        <div class="panel-body">
+          <pre class="raw" id="status">Нет активной задачи</pre>
+          <div id="links" class="links"></div>
+        </div>
+      </details>
+    </section>
+
+    <footer class="foot">Локальный оркестратор · отчёты и события в отдельных вкладках</footer>
+  </div>
+
+  <script>
+    const qs = (id) => document.getElementById(id);
+    const traceFull = qs("traceFull");
+    const statusEl = qs("status");
+    const linksEl = qs("links");
+    const detectBadge = qs("detectBadge");
+    const tracePanel = qs("tracePanel");
+    const jobStatusBar = qs("jobStatusBar");
+    const pipelineLoader = qs("pipelineLoader");
+    const pipelineLoaderHint = qs("pipelineLoaderHint");
+
+    function setPipelineLoading(On, Hint) {
+      if (!pipelineLoader) return;
+      if (Hint != null && pipelineLoaderHint) pipelineLoaderHint.textContent = Hint;
+      if (On) {
+        pipelineLoader.removeAttribute("hidden");
+        pipelineLoader.setAttribute("aria-hidden", "false");
+        document.body.setAttribute("aria-busy", "true");
+      } else {
+        pipelineLoader.setAttribute("hidden", "");
+        pipelineLoader.setAttribute("aria-hidden", "true");
+        document.body.removeAttribute("aria-busy");
+      }
+    }
+
+    function setDetectBadge(ok, pending) {
+      detectBadge.className = "badge" + (pending ? " idle pending" : "");
+      if (pending) {
+        detectBadge.className = "badge idle pending";
+        detectBadge.innerHTML = '<span class="icon">…</span> проверка…';
+        return;
+      }
+      if (ok === true) {
+        detectBadge.className = "badge ok";
+        detectBadge.innerHTML = '<span class="icon">✓</span> успех';
+      } else if (ok === false) {
+        detectBadge.className = "badge fail";
+        detectBadge.innerHTML = '<span class="icon">✕</span> не удался';
+      } else {
+        detectBadge.className = "badge idle";
+        detectBadge.innerHTML = '<span class="icon">○</span> не запускался';
+      }
+    }
+
+    function setJobStatus(status, kind) {
+      if (!jobStatusBar) return;
+      const t = String(status || "—").trim() || "—";
+      jobStatusBar.textContent = t;
+      jobStatusBar.className = "job-status " + (kind || "");
+    }
+
+    function stripSensitive(obj) {
+      if (!obj || typeof obj !== "object") return obj;
+      const j = JSON.parse(JSON.stringify(obj));
+      if (j.genericLogin && j.genericLogin.credentialFields) {
+        j.genericLogin.credentialFields = { password: "***", username: "***" };
+      }
+      return j;
+    }
+
+    function buildScanConfig(targetUrl, discovered) {
+      return {
+        version: "1.0",
+        job: { name: "ui-auto-scan" },
+        targets: [{ type: "web", baseUrl: targetUrl, startPoints: [targetUrl] }],
+        scope: { allow: [`^${targetUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*`], deny: [], maxUrls: 200 },
+        auth: {
+          strategy: "providerChain",
+          providers: [{
+            type: "genericLogin",
+            id: "ui-generic-login",
+            secretsRef: {
+              username: qs("login").value.trim(),
+              password: qs("password").value
+            },
+            genericLogin: discovered.genericLogin
+          }]
+        },
+        scan: {
+          plan: [
+            { stepType: "katana", enabled: true },
+            { stepType: "zapBaseline", enabled: true, zapAutomationFramework: true, zapSpiderTraditional: true },
+            { stepType: "nucleiTemplates", enabled: true, templatePaths: ["templates/example-banner.yaml"] }
+          ]
+        }
+      };
+    }
+
+    function statusKind(st) {
+      if (st === "SUCCEEDED") return "ok";
+      if (st === "FAILED") return "bad";
+      if (st === "PARTIAL_SUCCESS") return "partial";
+      if (st === "QUEUED" || st === "RUNNING") return "run";
+      return "";
+    }
+
+    async function pollJob(jobId) {
+      let done = false;
+      while (!done) {
+        const r = await fetch(`/api/v1/jobs/${jobId}/status`);
+        const s = await r.json();
+        statusEl.textContent = JSON.stringify(s, null, 2);
+        const st = String(s.status || "");
+        setJobStatus(st, statusKind(st));
+        if (st === "QUEUED" || st === "RUNNING") {
+          setPipelineLoading(true, st === "RUNNING" ? "Сканирование: Katana → ZAP → Nuclei…" : "В очереди…");
+        }
+        if (["SUCCEEDED", "FAILED", "PARTIAL_SUCCESS", "WAITING_FOR_AUTH"].includes(st)) {
+          done = true;
+          linksEl.innerHTML = `
+            <a href="/api/v1/jobs/${jobId}/reports" target="_blank" rel="noopener">Отчёт markdown</a>
+            <a href="/api/v1/jobs/${jobId}/reports?format=docx" target="_blank" rel="noopener">Отчёт DOCX / HTML</a>
+            <a href="/api/v1/jobs/${jobId}/events" target="_blank" rel="noopener">События JSONL</a>
+          `;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+
+    qs("startBtn").addEventListener("click", async () => {
+      const btn = qs("startBtn");
+      btn.disabled = true;
+      setPipelineLoading(true, "Автодетект и сканирование…");
+      linksEl.innerHTML = "";
+      statusEl.textContent = "Запуск…";
+      setJobStatus("RUNNING", "run");
+      traceFull.textContent = "—";
+      setDetectBadge(null, true);
+      tracePanel.open = false;
+
+      const payload = {
+        targetUrl: qs("targetUrl").value.trim(),
+        authUrl: qs("authUrl").value.trim(),
+        verifyUrl: qs("verifyUrl").value.trim(),
+        login: qs("login").value.trim(),
+        password: qs("password").value
+      };
+      try {
+        const dResp = await fetch("/api/v1/auth/discover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const dJson = await dResp.json();
+        traceFull.textContent = JSON.stringify(stripSensitive(dJson), null, 2);
+
+        const ok =
+          !!dResp.ok &&
+          dJson.verified === true &&
+          dJson.genericLogin != null &&
+          typeof dJson.genericLogin === "object";
+        setDetectBadge(ok, false);
+        if (!ok) {
+          statusEl.textContent = dJson.error || "Автодетект не удался. Укажите Auth URL или проверьте учётные данные.";
+          setJobStatus("—", "");
+          tracePanel.open = true;
+          return;
+        }
+
+        setPipelineLoading(true, "Подготовка задачи и запуск пайплайна…");
+        const cfg = buildScanConfig(payload.targetUrl, dJson);
+        const createResp = await fetch("/api/v1/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg)
+        });
+        const created = await createResp.json();
+        if (!createResp.ok || !created.jobId) {
+          statusEl.textContent = "Ошибка создания задачи: " + JSON.stringify(created);
+          setJobStatus("FAILED", "bad");
+          return;
+        }
+        setJobStatus("QUEUED", "run");
+        const startResp = await fetch(`/api/v1/jobs/${created.jobId}/start`, { method: "POST" });
+        const started = await startResp.json();
+        statusEl.textContent = "Запущено: " + JSON.stringify(started, null, 2);
+        await pollJob(created.jobId);
+      } catch (e) {
+        statusEl.textContent = String(e);
+        setDetectBadge(false, false);
+        setJobStatus("error", "bad");
+        tracePanel.open = true;
+      } finally {
+        btn.disabled = false;
+        setPipelineLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>

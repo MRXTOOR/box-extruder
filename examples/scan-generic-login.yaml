@@ -1,0 +1,54 @@
+version: "1.0"
+job:
+  name: "generic-login-demo"
+
+targets:
+  - type: "web"
+    baseUrl: "https://example.com/"
+
+scope:
+  allow:
+    - "^https://example\\.com/.*"
+  deny: []
+  maxUrls: 200
+
+auth:
+  strategy: "providerChain"
+  providers:
+    - type: "genericLogin"
+      id: "site-login"
+      # CLI спросит эти значения при запуске scan run.
+      interactiveInputs:
+        - name: "email"
+          prompt: "Email"
+          required: true
+        - name: "password"
+          prompt: "Password"
+          required: true
+          sensitive: true
+      genericLogin:
+        loginUrl: "https://example.com/api/auth/login"
+        loginMethod: "POST"
+        contentType: "application/json"
+        credentialFields:
+          email: "email"
+          password: "password"
+        tokenPath: "access_token"
+        tokenType: "Bearer"
+        tokenHeaderName: "Authorization"
+        verifyUrl: "https://example.com/api/me"
+        verifyMethod: "GET"
+        verifyExpectedStatus: 200
+
+scan:
+  plan:
+    - stepType: "katana"
+      enabled: true
+    - stepType: "zapBaseline"
+      enabled: true
+      zapAutomationFramework: true
+    - stepType: "nucleiTemplates"
+      enabled: true
+      templatePaths:
+        - "templates/example-banner.yaml"
+

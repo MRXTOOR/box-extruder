@@ -1,0 +1,20 @@
+{
+  "site": [
+    {
+      "alerts": [
+        {
+          "pluginid": "40012",
+          "alert": "Cross Site Scripting (Reflected)",
+          "name": "XSS",
+          "riskcode": "3",
+          "riskdesc": "High",
+          "confidence": "80",
+          "url": "https://example.com/search",
+          "method": "GET",
+          "param": "q",
+          "evidence": "<script>alert(1)</script>"
+        }
+      ]
+    }
+  ]
+}

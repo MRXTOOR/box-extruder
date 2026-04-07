@@ -1,0 +1,117 @@
+# Пример Scan-as-Code: цель и проверка auth — на реальном публичном сервисе https://httpbin.org
+# (не фиктивный staging.example.com). Подходит для локальной демонстрации по сети.
+#
+# Проверка сессии: GET https://httpbin.org/bearer возвращает 200 только при заголовке
+# Authorization: Bearer … — без DAST_BEARER_TOKEN получите 401 и предупреждение в логах.
+#
+# Секреты (не коммитьте в репозиторий):
+#   export DAST_BEARER_TOKEN='Bearer test-token-123'   # любой непустой токен подходит для httpbin
+# Опционально для своего сайта позже:
+#   export DAST_SESSION_COOKIE='...'
+#
+# Свой стенд: замените baseUrl, scope, startPoints, excludeUrls и verification.details.url на ваши URL.
+#
+# ZAP с Ajax Spider: см. examples/scan-with-zap-automation.yaml (шаг zapBaseline + zapAutomationFramework / zapSpiderAjax).
+# Официальный nuclei CLI: examples/scan-with-nuclei-cli.yaml (nucleiEngine: cli).
+# Katana (краулер): examples/scan-with-katana.yaml (шаг stepType: katana).
+# Полная связка (Katana → ZAP → Nuclei + лента URL): examples/scan-pipeline-full.yaml.
+# Демо на OWASP Juice Shop (локальный Docker, богаче находок для CTF): examples/scan-juice-shop.yaml + examples/docker-compose.juice-shop.yaml.
+
+version: "1.0"
+job:
+  name: "dast-httpbin-demo"
+  id: "httpbin-web"
+
+targets:
+  - type: "web"
+    baseUrl: "https://httpbin.org"
+    startPoints:
+      - "https://httpbin.org/"
+      - "https://httpbin.org/get"
+    excludeUrls:
+      - "^https://httpbin\\.org/delay/"
+      - "^https://httpbin\\.org/drip/"
+    includeUrls: []
+
+scope:
+  allow:
+    - "^https://httpbin\\.org/.*"
+  deny:
+    - "^https://httpbin\\.org/status/[45]"
+  maxUrls: 500
+
+auth:
+  strategy: "providerChain"
+  providers:
+    - type: "header"
+      id: "bearer-httpbin"
+      secretsRef:
+        headerValue: "secret://DAST_BEARER_TOKEN"
+      config:
+        headerName: "Authorization"
+      verification:
+        type: "endpointCheck"
+        details:
+          url: "https://httpbin.org/bearer"
+          expectedStatus: 200
+    # Для переноса на свой SPA/API оставьте второй провайдер; для httpbin не обязателен.
+    - type: "cookieJar"
+      id: "browser-session"
+      secretsRef:
+        cookie: "secret://DAST_SESSION_COOKIE"
+
+scan:
+  preset: "Fast"
+  plan:
+    - stepType: "crawl"
+      enabled: true
+    - stepType: "passive"
+      enabled: true
+    - stepType: "nucleiTemplates"
+      enabled: true
+      templatePaths:
+        - "templates"
+    - stepType: "verification"
+      enabled: true
+
+budgets:
+  discovery:
+    maxDepth: 3
+    maxUrls: 300
+    durationCrawlSecs: 180
+  passive:
+    passiveWaitDelaySecs: 15
+    passiveRuleDefaultSeverity: "WARN"
+  active:
+    maxRequestsTotal: 200
+    maxRequestsPerEndpoint: 30
+    maxPayloadsPerRule: 10
+    concurrency: 2
+    rateLimitRps: 5
+  verification:
+    maxVerifications: 50
+    evidenceThreshold: "low"
+
+noiseControl:
+  dedupe:
+    locationKey: "endpoint+method+paramsNormalized"
+    paramNormalization: "basic"
+  suppression:
+    allowlist: []
+    exclude:
+      - category: "Informational"
+        reason: "демо: отсечь информационный шум в PR"
+  falsePositiveWorkflow:
+    progressiveConfirmation: true
+    verifyOnlyNewOrChanged: false
+
+outputs:
+  formats: ["json", "md", "docx"]
+  docx:
+    templateRef: ""
+    includeEvidence: true
+  paths:
+    artifactsDir: "artifacts"
+
+execution:
+  dummyFindings: true
