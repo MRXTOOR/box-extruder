@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -266,4 +267,62 @@ func LatestJobID(workDir string) (string, error) {
 		return "", fmt.Errorf("no jobs under %s", jobsDir)
 	}
 	return bestID, nil
+}
+
+// JobSummary contains minimal info for job listing.
+type JobSummary struct {
+	JobID      string     `json:"jobId"`
+	Name       string     `json:"name,omitempty"`
+	TargetURL  string     `json:"targetUrl,omitempty"`
+	Status     string     `json:"status"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+}
+
+// ListJobs returns all jobs sorted by createdAt descending.
+func ListJobs(workDir string) ([]JobSummary, error) {
+	jobsDir := filepath.Join(workDir, "jobs")
+	entries, err := os.ReadDir(jobsDir)
+	if err != nil {
+		return nil, err
+	}
+	var jobs []JobSummary
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		id := e.Name()
+		j, err := ReadJob(workDir, id)
+		if err != nil {
+			continue
+		}
+		summary := JobSummary{
+			JobID:      j.JobID,
+			Status:     string(j.Status),
+			CreatedAt:  j.CreatedAt,
+			StartedAt:  j.StartedAt,
+			FinishedAt: j.FinishedAt,
+		}
+		cfg, err := LoadScanConfig(workDir, id)
+		if err == nil {
+			if cfg.Job.Name != "" {
+				summary.Name = cfg.Job.Name
+			}
+			if len(cfg.Targets) > 0 {
+				summary.TargetURL = cfg.Targets[0].BaseURL
+			}
+		}
+		jobs = append(jobs, summary)
+	}
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].CreatedAt.After(jobs[j].CreatedAt)
+	})
+	return jobs, nil
+}
+
+// DeleteJob removes the entire job directory.
+func DeleteJob(workDir, jobID string) error {
+	root := JobRoot(workDir, jobID)
+	return os.RemoveAll(root)
 }

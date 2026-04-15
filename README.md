@@ -4,6 +4,45 @@
 
 ## Быстрый старт
 
+### Docker (рекомендуемый способ — работает на Windows/macOS/Linux)
+
+**Вариант 1: Docker-in-Docker (полная изоляция)**
+
+```bash
+# Сборка и запуск
+make docker-build
+make docker-up
+
+# Или через docker compose напрямую:
+docker compose up -d
+```
+
+Откройте `http://localhost:8080` — Web UI готов к работе!
+
+**Вариант 2: Docker socket mount (легче, но требует доступ к host Docker)**
+
+```bash
+docker compose -f docker-compose.socket.yml up -d
+```
+
+**Остановка:**
+
+```bash
+make docker-down
+# или
+docker compose down
+```
+
+**Логи:**
+
+```bash
+make docker-logs
+# или
+docker logs -f dast-scanner
+```
+
+### Локальная разработка
+
 ```bash
 go test ./...
 ./scan run -f examples/scan-juice-shop.yaml -demo -work work
@@ -21,6 +60,32 @@ go build -o scan ./cmd/scan
 - UI вызовет `POST /api/v1/auth/discover`,
 - при успешном auto-discovery создаст и запустит job,
 - покажет live-статус и ссылки на отчёты.
+
+## Перенос на Windows
+
+1. **Установите Docker Desktop** для Windows с <https://www.docker.com/products/docker-desktop>
+
+2. **Склонируйте репозиторий:**
+
+```bash
+git clone <your-repo-url>
+cd box-extruder
+```
+
+1. **Запустите:**
+
+```bash
+# В PowerShell или Git Bash:
+make docker-build
+make docker-up
+
+# Или напрямую:
+docker compose up -d
+```
+
+1. **Откройте браузер:** <http://localhost:8080>
+
+> **Важно:** DinD (Docker-in-Docker) требует `privileged: true`, что работает на Linux. На Windows/macOS используйте `docker-compose.socket.yml` или убедитесь что Docker Desktop поддерживает nested containers.
 
 ## Где смотреть результаты
 

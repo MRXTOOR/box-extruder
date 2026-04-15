@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash *)",
+      "Bash(docker images)",
+      "Bash(docker ps *)",
+      "Bash(docker run *)",
+      "Bash(ls *)",
+      "Bash(python3 *)"
+    ]
+  },
+  "$version": 3
+}

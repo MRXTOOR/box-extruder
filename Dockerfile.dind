@@ -1,0 +1,68 @@
+# Docker-in-Docker для DAST оркестратора
+# Включает: Go binary, Docker CLI, ZAP, Katana, Nuclei
+
+# Build stage — компиляция Go binary
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/scan ./cmd/scan
+
+# Runtime stage с Docker daemon + tools
+FROM docker:27-dind
+
+# Устанавливаем зависимости
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    bash \
+    docker-cli \
+    openjdk17-jre-headless \
+    pandoc \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ttf-freefont
+
+# Устанавливаем ZAP
+RUN curl -fsSL https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2_15_0_unix.sh -o /tmp/zap.sh && \
+    sh /tmp/zap.sh -q && \
+    rm /tmp/zap.sh
+
+# Устанавливаем Katana
+RUN curl -fsSL https://github.com/projectdiscovery/katana/releases/download/v1.1.3/katana_1.1.3_linux_amd64.zip -o /tmp/katana.zip && \
+    unzip /tmp/katana.zip -d /tmp/katana && \
+    mv /tmp/katana/katana /usr/local/bin/katana && \
+    chmod +x /usr/local/bin/katana && \
+    rm -rf /tmp/katana*
+
+# Устанавливаем Nuclei
+RUN curl -fsSL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.8/nuclei_3.3.8_linux_amd64.zip -o /tmp/nuclei.zip && \
+    unzip /tmp/nuclei.zip -d /tmp/nuclei && \
+    mv /tmp/nuclei/nuclei /usr/local/bin/nuclei && \
+    chmod +x /usr/local/bin/nuclei && \
+    rm -rf /tmp/nuclei*
+
+# Копируем Go binary
+COPY --from=build /out/scan /usr/local/bin/scan
+
+# Создаем рабочие директории
+RUN mkdir -p /workspace/work /workspace/templates
+
+WORKDIR /workspace
+
+# Environment
+ENV DAST_WORKDIR=/workspace/work
+ENV DAST_ZAP_DOCKER_IMAGE=
+ENV DAST_KATANA_DOCKER_IMAGE=
+
+# Порты
+EXPOSE 8080
+
+# ENTRYPOINT — скрипт запуска
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

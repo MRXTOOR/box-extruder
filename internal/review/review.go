@@ -164,7 +164,7 @@ func regenerateReport(workDir, jobID string, findings []model.Finding) error {
 		finished = *j.FinishedAt
 	}
 	updated := time.Now().UTC()
-	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, started, finished, findings, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, &updated)
+	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, started, finished, findings, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, &updated, nil)
 	if err := storage.WriteReportMD(workDir, jobID, md); err != nil {
 		return err
 	}

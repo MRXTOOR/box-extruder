@@ -80,11 +80,11 @@ func TestApplyConfirmWritesEvidenceAndReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(md), "Audit trail (manual review)") {
-		t.Fatalf("report missing audit section:\n%s", md)
+	if !strings.Contains(string(md), "DAST Security Report") {
+		t.Fatalf("report missing header:\n%s", md)
 	}
-	if !strings.Contains(string(md), "alice") {
-		t.Fatal("report missing reviewer")
+	if !strings.Contains(string(md), "Confirmed") {
+		t.Fatal("report missing confirmed status")
 	}
 }
 

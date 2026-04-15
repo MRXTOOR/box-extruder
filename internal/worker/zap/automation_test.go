@@ -29,7 +29,7 @@ func TestBuildAutomationYAML_spiderAndAjax(t *testing.T) {
 		ZAPMaxSpiderMinutes:   2,
 		ZAPPassiveWaitSeconds: 30,
 	}
-	b, err := buildAutomationYAML("https://example.com", []string{`^https://example\.com/.*`}, step, "/zap/wrk", nil, nil)
+	b, err := buildAutomationYAML("https://example.com", []string{`^https://example\.com/.*`}, nil, step, "/zap/wrk", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestBuildAutomationYAML_spiderAndAjax(t *testing.T) {
 
 func TestBuildAutomationYAML_authReplacer(t *testing.T) {
 	step := config.ScanStep{ZAPSpiderTraditional: true, ZAPSpiderAjax: false}
-	b, err := buildAutomationYAML("https://example.com", nil, step, "/zap/wrk", map[string]string{
+	b, err := buildAutomationYAML("https://example.com", nil, nil, step, "/zap/wrk", map[string]string{
 		"Authorization": "Bearer test-token",
 	}, nil)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestRemapLocalhostForZAPDocker_localZAPNoop(t *testing.T) {
 
 func TestBuildAutomationYAML_ajaxOnly(t *testing.T) {
 	step := config.ScanStep{ZAPSpiderAjax: true, ZAPSpiderTraditional: false}
-	b, err := buildAutomationYAML("https://ex.com", nil, step, "/tmp/out", nil, nil)
+	b, err := buildAutomationYAML("https://ex.com", nil, nil, step, "/tmp/out", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

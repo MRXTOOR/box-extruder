@@ -10,85 +10,86 @@ import (
 	"github.com/box-extruder/dast/internal/model"
 )
 
-func TestRenderMarkdown_includesEvidenceByDefault(t *testing.T) {
-	evID := "ev-1"
+func TestRenderMarkdown_includesFindingsBySeverity(t *testing.T) {
 	findings := []model.Finding{
 		{
 			FindingID:       "f1",
-			RuleID:          "r1",
-			Severity:        model.SeverityHigh,
+			RuleID:          "sql-injection",
+			Severity:        model.SeverityCritical,
 			LifecycleStatus: model.LifecycleDetected,
-			Title:           "XSS",
-			EvidenceRefs:    []string{evID},
+			Title:           "SQL Injection",
+			LocationKey:     "https://x.test/api/users?id=1",
 		},
-	}
-	evidence := map[string]model.Evidence{
-		evID: {
-			EvidenceID: evID,
-			Type:       model.EvidenceHTTPRequestResponse,
-			Payload: map[string]any{
-				"method":              "GET",
-				"url":                 "https://x.test/a",
-				"statusCode":          float64(200),
-				"responseBodySnippet": "<script>",
-			},
-		},
-	}
-	out := RenderMarkdown("j", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, evidence, true, "low", nil)
-	s := string(out)
-	if !containsAll(s, []string{"## Evidence", "GET", "https://x.test/a", "<script>"}) {
-		t.Fatalf("report missing evidence: %s", s)
-	}
-	if strings.Contains(s, "## Evidence (confirmed)") {
-		t.Fatal("old section title")
-	}
-	if !strings.Contains(s, "## Evidence summary") {
-		t.Fatal("missing evidence summary")
-	}
-}
-
-func TestRenderMarkdown_evidenceSummaryQuality(t *testing.T) {
-	evID := "e1"
-	findings := []model.Finding{{
-		FindingID: "f1", RuleID: "r", Severity: model.SeverityInfo,
-		LifecycleStatus: model.LifecycleDetected, EvidenceRefs: []string{evID},
-	}}
-	evidence := map[string]model.Evidence{
-		evID: {Type: model.EvidenceHTTPRequestResponse, Payload: model.HTTPRequestResponsePayload{
-			Method: "GET", URL: "http://u/",
-		}},
-	}
-	out := string(RenderMarkdown("j", "", "", time.Time{}, time.Time{}, findings, evidence, false, "high", nil))
-	if !strings.Contains(out, "partial") || !strings.Contains(out, "Evidence summary") {
-		t.Fatal(out)
-	}
-}
-
-func TestRenderMarkdown_httpTypedPayload(t *testing.T) {
-	evID := "e2"
-	findings := []model.Finding{
 		{
-			FindingID:       "f1",
-			EvidenceRefs:    []string{evID},
+			FindingID:       "f2",
+			RuleID:          "xss",
+			Severity:        model.SeverityHigh,
 			LifecycleStatus: model.LifecycleConfirmed,
-			Title:           "t",
+			Title:           "Cross-Site Scripting",
+			LocationKey:     "https://x.test/search?q=test",
 		},
 	}
-	evidence := map[string]model.Evidence{
-		evID: {
-			EvidenceID: evID,
-			Type:       model.EvidenceHTTPRequestResponse,
-			Payload: model.HTTPRequestResponsePayload{
-				Method:              "POST",
-				URL:                 "https://a/b",
-				StatusCode:          500,
-				ResponseBodySnippet: "err",
-			},
-		},
+	out := RenderMarkdown("Test Scan", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, nil, false, "low", nil, nil)
+	s := string(out)
+	if !strings.Contains(s, "DAST Security Report") {
+		t.Fatal("missing header")
 	}
-	out := string(RenderMarkdown("", "", "", time.Time{}, time.Time{}, findings, evidence, true, "low", nil))
-	if !containsAll(out, []string{"POST", "https://a/b", "500", "err"}) {
-		t.Fatal(out)
+	if !strings.Contains(s, "CRITICAL") {
+		t.Fatal("missing CRITICAL severity")
+	}
+	if !strings.Contains(s, "HIGH") {
+		t.Fatal("missing HIGH severity")
+	}
+	if !strings.Contains(s, "SQL Injection") {
+		t.Fatal("missing finding title")
+	}
+}
+
+func TestRenderMarkdown_scannedEndpoints(t *testing.T) {
+	endpoints := []string{
+		"https://x.test/",
+		"https://x.test/about",
+		"https://x.test/contact",
+	}
+	findings := []model.Finding{}
+	out := RenderMarkdown("Test", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, nil, false, "low", nil, endpoints)
+	s := string(out)
+	if !strings.Contains(s, "Просканированные эндпоинты") {
+		t.Fatal("missing endpoints section")
+	}
+	if !strings.Contains(s, "3") {
+		t.Fatal("missing endpoint count")
+	}
+	if !strings.Contains(s, "https://x.test/about") {
+		t.Fatal("missing endpoint URL")
+	}
+}
+
+func TestRenderMarkdown_noFindings(t *testing.T) {
+	out := RenderMarkdown("Clean Scan", "https://x.test", "Fast", time.Time{}, time.Time{}, nil, nil, false, "low", nil, nil)
+	s := string(out)
+	if !strings.Contains(s, "DAST Security Report") {
+		t.Fatal("missing header")
+	}
+	if !strings.Contains(s, "0") {
+		t.Fatal("should show zero findings")
+	}
+}
+
+func TestStatusEmoji(t *testing.T) {
+	tests := []struct {
+		status   model.LifecycleStatus
+		contains string
+	}{
+		{model.LifecycleConfirmed, "Confirmed"},
+		{model.LifecycleFalsePositiveSuppressed, "Suppressed"},
+		{model.LifecycleDetected, "Detected"},
+	}
+	for _, tt := range tests {
+		result := statusEmoji(tt.status)
+		if !strings.Contains(result, tt.contains) {
+			t.Errorf("statusEmoji(%s) = %s, want containing %s", tt.status, result, tt.contains)
+		}
 	}
 }
 

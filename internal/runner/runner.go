@@ -3,6 +3,7 @@ package runner
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,9 +30,9 @@ type Options struct {
 	WorkDir       string
 	ConfigYAML    []byte
 	Config        *config.ScanAsCode
-	SkipZAPDocker   bool
-	SkipNucleiCLI   bool
-	SkipKatanaCLI   bool
+	SkipZAPDocker bool
+	SkipNucleiCLI bool
+	SkipKatanaCLI bool
 	// JobID if set reuses workspace (Execute path); empty creates new id in Run.
 	JobID string
 	// ConfigFileDir is the directory of the scan-as-code file (for resolving relative templatePaths).
@@ -97,15 +98,15 @@ func ExecuteWithProgress(workDir, jobID string, skipZAP bool, on ProgressSink) e
 	skipNuclei := os.Getenv("DAST_SKIP_NUCLEI_CLI") == "1"
 	skipKatana := os.Getenv("DAST_SKIP_KATANA_CLI") == "1"
 	_, err = runPipeline(Options{
-		WorkDir:        workDir,
-		ConfigYAML:     data,
-		Config:         cfg,
-		SkipZAPDocker:  skipZAP,
-		SkipNucleiCLI:  skipNuclei,
-		SkipKatanaCLI:  skipKatana,
-		JobID:          jobID,
-		ConfigFileDir:  cfgDir,
-		OnProgress:     on,
+		WorkDir:       workDir,
+		ConfigYAML:    data,
+		Config:        cfg,
+		SkipZAPDocker: skipZAP,
+		SkipNucleiCLI: skipNuclei,
+		SkipKatanaCLI: skipKatana,
+		JobID:         jobID,
+		ConfigFileDir: cfgDir,
+		OnProgress:    on,
 	})
 	return err
 }
@@ -234,11 +235,13 @@ func runPipeline(opt Options) (string, error) {
 	httpClient.Transport = authTransport(httpClient.Transport, authRes.HeaderInject, authRes.CookieHeader)
 
 	var rawFindings []model.Finding
+	var scannedEndpoints []string
 	evidenceList := append([]model.Evidence{}, authRes.Evidence...)
 	evidenceByID := map[string]model.Evidence{}
 	for i := range evidenceList {
 		evidenceByID[evidenceList[i].EvidenceID] = evidenceList[i]
 	}
+	endpointsSeen := make(map[string]struct{})
 
 	discoveryFeedSeen := make(map[string]struct{})
 	var discoveryFeed []string
@@ -336,6 +339,15 @@ func runPipeline(opt Options) (string, error) {
 					evidenceList = append(evidenceList, e)
 					evidenceByID[e.EvidenceID] = e
 				}
+				// Collect scanned endpoints from evidence URLs (normalized: no query params)
+				for _, e := range ke {
+					if ep := extractEndpoint(e); ep != "" {
+						if _, seen := endpointsSeen[ep]; !seen {
+							endpointsSeen[ep] = struct{}{}
+							scannedEndpoints = append(scannedEndpoints, ep)
+						}
+					}
+				}
 				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(kf, evidenceByID))
 				st.Metrics.FindingsRaw = len(kf)
 				st.Metrics.URLsSeen = len(kf)
@@ -375,7 +387,7 @@ func runPipeline(opt Options) (string, error) {
 			}
 			if zapworker.UseAutomation(stepCfg) {
 				emit(opt, jobID, "info", "ZAP: Automation Framework (spider / Ajax spider if enabled)")
-				zf, ze, zerr = zapworker.RunAutomation(base, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir, cfg.Scope.Allow, stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath)
+				zf, ze, zerr = zapworker.RunAutomation(base, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir, cfg.Scope.Allow, startPoints(cfg), stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath)
 			} else {
 				emit(opt, jobID, "info", "ZAP: baseline script (docker)")
 				zf, ze, zerr = zapworker.RunBaseline(base, zapDir, stepCfg.ZAPDockerImage, authHeaders)
@@ -392,6 +404,15 @@ func runPipeline(opt Options) (string, error) {
 					e.ContextID = authRes.Context.ContextID
 					evidenceList = append(evidenceList, e)
 					evidenceByID[e.EvidenceID] = e
+				}
+				// Collect scanned endpoints from ZAP evidence URLs (normalized)
+				for _, e := range ze {
+					if ep := extractEndpoint(e); ep != "" {
+						if _, seen := endpointsSeen[ep]; !seen {
+							endpointsSeen[ep] = struct{}{}
+							scannedEndpoints = append(scannedEndpoints, ep)
+						}
+					}
 				}
 				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(zf, evidenceByID))
 				st.Metrics.FindingsRaw = len(zf)
@@ -570,18 +591,13 @@ func runPipeline(opt Options) (string, error) {
 	if preset == "" {
 		preset = "custom"
 	}
-	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, now, time.Now().UTC(), final, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, nil)
+	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, now, time.Now().UTC(), final, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, nil, scannedEndpoints)
 	if err := storage.WriteReportMD(opt.WorkDir, jobID, md); err != nil {
 		return "", err
 	}
-	mdPath := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "reports", "report.md")
 	docxPath := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "reports", "report.docx")
-	ref := ""
-	if cfg.Outputs.Docx != nil {
-		ref = report.ResolveReferenceDoc(cfg.Outputs.Docx.TemplateRef, opt.WorkDir)
-	}
-	_ = report.PandocToDocxOptional(mdPath, docxPath, ref)
-	emit(opt, jobID, "info", "Markdown saved; DOCX if pandoc in PATH, else reports/report.html for Word/LibreOffice")
+	_ = report.RenderDocxOptional(cfg.Job.Name, baseURL, now, time.Now().UTC(), final, scannedEndpoints, docxPath)
+	emit(opt, jobID, "info", "Reports saved: report.md, report.html")
 
 	partial := false
 	for _, st := range job.Steps {
@@ -594,12 +610,15 @@ func runPipeline(opt Options) (string, error) {
 	} else {
 		job.Status = model.JobSucceeded
 	}
+	// Save scanned endpoints to job
+	if len(scannedEndpoints) > 0 {
+		job.ScannedEndpoints = scannedEndpoints
+	}
 	finishJob(opt.WorkDir, job)
 	emit(opt, jobID, "info", "Done, job status: "+string(job.Status))
 	_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "info", "msg": "job finished", "status": string(job.Status)})
 	return jobID, nil
 }
-
 
 func finishJob(workDir string, job *model.Job) {
 	t := time.Now().UTC()
@@ -715,7 +734,7 @@ func dummyBundle(ctxID string) ([]model.Finding, []model.Evidence) {
 			ContextID:  ctxID,
 			Payload: model.HTTPRequestResponsePayload{
 				Method:     "GET",
-				URL:      "https://example.invalid/robots.txt",
+				URL:        "https://example.invalid/robots.txt",
 				StatusCode: 200,
 			},
 		},
@@ -770,6 +789,24 @@ func katanaSeedURLs(cfg *config.ScanAsCode) []string {
 	return out
 }
 
+func startPoints(cfg *config.ScanAsCode) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, t := range cfg.Targets {
+		for _, sp := range t.StartPoints {
+			sp = strings.TrimSpace(sp)
+			if sp == "" {
+				continue
+			}
+			if _, ok := seen[sp]; !ok {
+				seen[sp] = struct{}{}
+				out = append(out, sp)
+			}
+		}
+	}
+	return out
+}
+
 func katanaOptsFromStep(cfg *config.ScanAsCode, step config.ScanStep, seeds, headers []string) katana.CLIOptions {
 	o := katana.CLIOptions{
 		Targets:   seeds,
@@ -782,6 +819,15 @@ func katanaOptsFromStep(cfg *config.ScanAsCode, step config.ScanStep, seeds, hea
 		o.Depth = step.KatanaDepth
 	} else if cfg.Budgets.Discovery.MaxDepth > 0 {
 		o.Depth = cfg.Budgets.Discovery.MaxDepth
+	} else {
+		o.Depth = 10
+	}
+	if step.KatanaMaxURLs > 0 {
+		o.MaxURLs = step.KatanaMaxURLs
+	} else if cfg.Budgets.Discovery.MaxURLs > 0 {
+		o.MaxURLs = cfg.Budgets.Discovery.MaxURLs
+	} else {
+		o.MaxURLs = 5000
 	}
 	if step.KatanaConcurrency > 0 {
 		o.Concurrency = step.KatanaConcurrency
@@ -886,4 +932,112 @@ func resolveOneRelativeTemplatePath(configDir, p, workDir, repoRoot string) stri
 		}
 	}
 	return ""
+}
+
+// extractEndpoint извлекает URL из evidence (полный URL с query params).
+// Фильтрует URL с payload для XSS/SQLi атак — сохраняет только реальные эндпоинты.
+func extractEndpoint(e model.Evidence) string {
+	rawURL := ""
+	switch p := e.Payload.(type) {
+	case model.HTTPRequestResponsePayload:
+		rawURL = p.URL
+	case map[string]any:
+		if v, ok := p["url"].(string); ok {
+			rawURL = v
+		}
+	}
+	if rawURL == "" {
+		return ""
+	}
+	// Валидация URL
+	_, err := parseURL(rawURL)
+	if err != nil {
+		return ""
+	}
+	// Фильтруем URL с payload для XSS/SQLi атак
+	if isAttackPayloadURL(rawURL) {
+		return ""
+	}
+	return rawURL
+}
+
+// isAttackPayloadURL проверяет, содержит ли URL известные payload-паттерны XSS/SQLi
+func isAttackPayloadURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.RawQuery == "" {
+		return false
+	}
+	// Проверяем raw и decoded query
+	rawQ := strings.ToLower(u.RawQuery)
+	decodedQ := ""
+	if d, err := url.QueryUnescape(u.RawQuery); err == nil {
+		decodedQ = strings.ToLower(d)
+	}
+	// Специфичные XSS payload-паттерны
+	xssPatterns := []string{
+		"alert(", "prompt(", "confirm(",
+		"document.cookie", "document.location", "document.write",
+		"string.fromcharcode", "eval(",
+		"<script", "%3cscript", "%3c%73cript",
+		"onerror=alert", "onerror=prompt", "onerror=confirm",
+		"onload=alert", "onload=prompt",
+		"javascript:alert", "javascript:prompt",
+		"data:text/html", "vbscript:",
+		"<svg/onload", "%3csvg/onload",
+		"<img/src", "%3cimg/src",
+		"<iframe", "%3ciframe",
+		"expression(alert",
+	}
+	// Специфичные SQLi payload-паттерны (включая URL-encoded)
+	sqliPatterns := []string{
+		"' or ", "' and ", "' union ", "' insert ", "' drop ",
+		" or 1=1", " and 1=1", " or '1'='1", " and '1'='1",
+		"sleep(", "benchmark(", "waitfor delay", "waitfor time",
+		"xp_cmdshell", "xp_dirtree", "xp_fileexist",
+		"load_file(", "into outfile", "into dumpfile",
+		"information_schema", "sysobjects", "syscolumns",
+		"@@version", "@@servername",
+		"convert(int", "cast(",
+		"insert into", "delete from", "update ", "drop table",
+		"; insert ", "; delete ", "; update ", "; drop ",
+		"exec(", "execute(", "execxp_",
+	}
+	// Проверяем оба варианта
+	for _, q := range []string{rawQ, decodedQ} {
+		if q == "" {
+			continue
+		}
+		for _, pat := range xssPatterns {
+			if strings.Contains(q, pat) {
+				return true
+			}
+		}
+		for _, pat := range sqliPatterns {
+			if strings.Contains(q, pat) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func parseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		// Пробуем добавить схему если отсутствует
+		if strings.HasPrefix(raw, "//") {
+			return url.Parse("https:" + raw)
+		}
+		if strings.HasPrefix(raw, "/") {
+			return url.Parse("http://localhost" + raw)
+		}
+		return nil, err
+	}
+	if u.Scheme == "" {
+		u.Scheme = "https"
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("empty host in URL: %s", raw)
+	}
+	return u, nil
 }

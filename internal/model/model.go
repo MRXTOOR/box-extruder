@@ -106,15 +106,16 @@ type JobStep struct {
 
 // Job is the persisted job aggregate (subset for API/storage).
 type Job struct {
-	JobID         string     `json:"jobId"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	StartedAt     *time.Time `json:"startedAt,omitempty"`
-	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
-	Status        JobStatus  `json:"status"`
-	ConfigHash    string     `json:"configHash"`
-	BudgetsPreset string     `json:"budgetsPreset,omitempty"`
-	Steps         []JobStep  `json:"steps"`
-	Error         string     `json:"error,omitempty"`
+	JobID            string     `json:"jobId"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	StartedAt        *time.Time `json:"startedAt,omitempty"`
+	FinishedAt       *time.Time `json:"finishedAt,omitempty"`
+	Status           JobStatus  `json:"status"`
+	ConfigHash       string     `json:"configHash"`
+	BudgetsPreset    string     `json:"budgetsPreset,omitempty"`
+	Steps            []JobStep  `json:"steps"`
+	Error            string     `json:"error,omitempty"`
+	ScannedEndpoints []string   `json:"scannedEndpoints,omitempty"`
 }
 
 // ContextSnapshot auth + scope without secrets.

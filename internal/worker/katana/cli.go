@@ -23,6 +23,7 @@ type CLIOptions struct {
 	Targets       []string
 	Headers       []string // "Name: value" для -H
 	Depth         int      // -d, 0 = не передавать (дефолт katana)
+	MaxURLs       int      // -max-urls, 0 = без лимита
 	Concurrency   int      // -c
 	TimeoutSecs   int      // -timeout на запрос
 	RateLimit     int      // -rl
@@ -61,7 +62,13 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	args := []string{"-silent", "-nc", "-jsonl", "-or", "-ob"}
+	args := []string{"-silent", "-nc", "-jsonl", "-ob", "-no-redirect"}
+	if opts.Depth > 0 {
+		args = append(args, "-d", fmt.Sprintf("%d", opts.Depth))
+	}
+	if opts.MaxURLs > 0 {
+		args = append(args, "-max-urls", fmt.Sprintf("%d", opts.MaxURLs))
+	}
 	for _, u := range opts.Targets {
 		u = strings.TrimSpace(u)
 		if u == "" {
@@ -75,9 +82,6 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 			continue
 		}
 		args = append(args, "-H", h)
-	}
-	if opts.Depth > 0 {
-		args = append(args, "-d", fmt.Sprintf("%d", opts.Depth))
 	}
 	if opts.Concurrency > 0 {
 		args = append(args, "-c", fmt.Sprintf("%d", opts.Concurrency))
@@ -116,7 +120,7 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 		if derr != nil {
 			return nil, nil, fmt.Errorf("katana CLI: DAST_KATANA_DOCKER_IMAGE=%q задан, но docker не найден: %w", img, derr)
 		}
-		dockerArgs := []string{"run", "--rm"}
+		dockerArgs := []string{"run", "--rm", "--network", "host"}
 		if extra := strings.Fields(os.Getenv("DAST_KATANA_DOCKER_EXTRA")); len(extra) > 0 {
 			dockerArgs = append(dockerArgs, extra...)
 		}
@@ -139,12 +143,15 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
 	out := stdout.Bytes()
+	errMsg := strings.TrimSpace(stderr.String())
 	if runErr != nil && len(bytes.TrimSpace(out)) == 0 {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = runErr.Error()
+		if errMsg == "" {
+			errMsg = runErr.Error()
 		}
-		return nil, nil, fmt.Errorf("katana CLI: %w: %s", runErr, truncateRunMsg(msg, 4000))
+		return nil, nil, fmt.Errorf("katana CLI: %w: %s", runErr, truncateRunMsg(errMsg, 4000))
+	}
+	if len(errMsg) > 0 && strings.Contains(errMsg, "failed") || strings.Contains(errMsg, "error") {
+		return nil, nil, fmt.Errorf("katana stderr: %s", truncateRunMsg(errMsg, 4000))
 	}
 	findings, evidence, perr := parseKatanaJSONL(out, opts.ContextID, opts.Dedupe)
 	if perr != nil {
@@ -186,9 +193,12 @@ func parseKatanaJSONL(raw []byte, ctxID string, dedupe config.DedupeConfig) ([]m
 		if len(line) == 0 {
 			continue
 		}
+		if len(line) < 2 || line[0] != '{' {
+			continue
+		}
 		var row katanaJSONLine
 		if err := json.Unmarshal(line, &row); err != nil {
-			return nil, nil, fmt.Errorf("katana JSONL line %d: %w", lineNo, err)
+			continue
 		}
 		f, ev := rowToModels(row, ctxID, dedupe, now)
 		if f == nil {
@@ -196,9 +206,6 @@ func parseKatanaJSONL(raw []byte, ctxID string, dedupe config.DedupeConfig) ([]m
 		}
 		findings = append(findings, *f)
 		evidence = append(evidence, ev)
-	}
-	if err := sc.Err(); err != nil {
-		return nil, nil, err
 	}
 	return findings, evidence, nil
 }

@@ -49,14 +49,15 @@ auth:
     - type: "juiceShopLogin"
       id: "juice-session"
       secretsRef:
-        email: "логин"
-        password: "пароль"
+        email: "admin@juice-sh.op"
+        password: "admin123"
 
 scan:
   preset: "Fast"
   plan:
     - stepType: "katana"
       enabled: true
+      katanaHeadless: true
       katanaDepth: 3
       katanaConcurrency: 8
       katanaTimeoutSecs: 30

@@ -6,6 +6,10 @@ KATANA_DOCKER_IMAGE ?= projectdiscovery/katana:latest
 WEB_ADDR ?= :8080
 WORK_DIR ?= work
 
+# Docker
+DOCKER_IMAGE ?= box-extruder/dast-scanner:latest
+DOCKER_COMPOSE ?= docker-compose.yml
+
 # Сборка CLI в текущий каталог (тогда: ./scan run ...)
 .PHONY: build
 build:
@@ -77,3 +81,40 @@ juice-shop-down:
 .PHONY: run-juice-shop-demo
 run-juice-shop-demo: build
 	DAST_KATANA_DOCKER_IMAGE=$(KATANA_DOCKER_IMAGE) ./scan run -f examples/scan-juice-shop.yaml -demo -work work
+
+# ============================================
+# Docker цели
+# ============================================
+
+# Сборка Docker образа (Docker-in-Docker)
+.PHONY: docker-build
+docker-build:
+	docker build -f Dockerfile.dind -t $(DOCKER_IMAGE) .
+
+# Запуск через Docker-in-Docker (полная изоляция, работает на Windows)
+.PHONY: docker-up
+docker-up:
+	docker compose -f $(DOCKER_COMPOSE) up -d
+	@echo "DAST scanner is running on http://localhost:8080"
+	@echo "Logs: docker logs -f dast-scanner"
+
+# Остановка
+.PHONY: docker-down
+docker-down:
+	docker compose -f $(DOCKER_COMPOSE) down
+
+# Логи
+.PHONY: docker-logs
+docker-logs:
+	docker compose -f $(DOCKER_COMPOSE) logs -f
+
+# Альтернативный запуск через Docker socket (легче, но нужен доступ к host Docker)
+.PHONY: docker-socket-up
+docker-socket-up:
+	docker compose -f docker-compose.socket.yml up -d
+	@echo "DAST scanner is running on http://localhost:8080"
+	@echo "Logs: docker logs -f dast-scanner"
+
+.PHONY: docker-socket-down
+docker-socket-down:
+	docker compose -f docker-compose.socket.yml down

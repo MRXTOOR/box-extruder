@@ -1,0 +1,37 @@
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+scan
+
+# Work directory
+work/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile.dind
+docker-compose.yml
+docker-compose.socket.yml
+docker-entrypoint.sh
+
+# CI/CD
+Jenkinsfile
+
+# Test
+*_test.go

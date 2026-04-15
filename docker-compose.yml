@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  dast-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.dind
+    container_name: dast-scanner
+    privileged: true  # Требуется для Docker-in-Docker
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist work directory
+      - dast-work:/workspace/work
+      # Templates directory
+      - ./templates:/workspace/templates:ro
+      # Optional: mount custom configs
+      - ./examples:/workspace/examples:ro
+    environment:
+      # Адрес API сервера
+      - DAST_SERVE_ADDR=0.0.0.0:8080
+      # Автоматически pull images при старте (0 = отключить)
+      - DAST_PULL_IMAGES=1
+      # Локальные бинарники (вместо Docker для ZAP/Katana)
+      # Раскомментируйте если хотите использовать локальные бинарники:
+      # - DAST_ZAP_DOCKER_IMAGE=
+      # - DAST_KATANA_DOCKER_IMAGE=
+      # Лимиты
+      - GOMEMLIMIT=2GiB
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  dast-work:
+    driver: local
