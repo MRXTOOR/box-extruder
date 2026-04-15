@@ -317,6 +317,27 @@
       box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.18);
     }
 
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .checkbox-label span {
+      user-select: none;
+    }
+
     @media (max-width: 520px) {
       .row2 { grid-template-columns: 1fr; }
       .pipeline { flex-wrap: wrap; justify-content: center; }
@@ -1098,6 +1119,12 @@
             <textarea id="startPoints" rows="3"
               placeholder="https://example.com/about&#10;https://example.com/contact"></textarea>
           </div>
+          <div class="field">
+            <label class="checkbox-label">
+              <input id="insecureSkipVerify" type="checkbox" />
+              <span>Пропускать проверку TLS-сертификатов (для самоподписанных)</span>
+            </label>
+          </div>
         </div>
       </details>
       <button type="button" class="btn-primary" id="startBtn">Автодетект и запуск скана</button>
@@ -1600,7 +1627,8 @@
         authUrl: qs("authUrl").value.trim(),
         verifyUrl: qs("verifyUrl").value.trim(),
         login: qs("login").value.trim(),
-        password: qs("password").value
+        password: qs("password").value,
+        insecureSkipVerify: qs("insecureSkipVerify").checked
       };
       try {
         const dResp = await fetch("/api/v1/auth/discover", {
