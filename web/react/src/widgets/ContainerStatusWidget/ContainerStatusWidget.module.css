@@ -1,0 +1,138 @@
+.widget {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.refresh {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.refresh:hover {
+  background: #f3f4f6;
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #fef3c7;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  color: #92400e;
+}
+
+.alertIcon {
+  font-size: 1.25rem;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.empty {
+  text-align: center;
+  padding: 1rem;
+  color: var(--text-light);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+}
+
+.item.healthy {
+  border-left-color: var(--success);
+}
+
+.item.unhealthy,
+.item.dead {
+  border-left-color: var(--danger);
+  background: #fef2f2;
+}
+
+.item.starting,
+.item.restarting {
+  border-left-color: var(--warning);
+  background: #fffbeb;
+}
+
+.item.stopped {
+  border-left-color: var(--text-light);
+}
+
+.icon {
+  font-size: 1.25rem;
+  width: 1.5rem;
+  text-align: center;
+}
+
+.item.healthy .icon { color: var(--success); }
+.item.unhealthy .icon,
+.item.dead .icon { color: var(--danger); }
+.item.starting .icon,
+.item.restarting .icon { color: var(--warning); }
+.item.stopped .icon { color: var(--text-light); }
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  display: block;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status {
+  font-size: 0.75rem;
+  color: var(--text-light);
+  white-space: nowrap;
+}
+
+.loading,
+.error {
+  padding: 1rem;
+  text-align: center;
+}
+
+.error {
+  color: var(--danger);
+}

@@ -1,0 +1,13 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+ENV GOTOOLCHAIN=auto
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /dast-server ./cmd/server
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates curl
+COPY --from=builder /dast-server /usr/local/bin/
+EXPOSE 8080
+CMD ["dast-server"]

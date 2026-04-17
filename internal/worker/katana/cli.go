@@ -116,17 +116,20 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 
 	var cmd *exec.Cmd
 	if img := DockerKatanaImage(); img != "" {
-		dockerPath, derr := exec.LookPath("docker")
-		if derr != nil {
+		if _, derr := exec.LookPath("docker"); derr != nil {
 			return nil, nil, fmt.Errorf("katana CLI: DAST_KATANA_DOCKER_IMAGE=%q задан, но docker не найден: %w", img, derr)
 		}
-		dockerArgs := []string{"run", "--rm", "--network", "host"}
+		dockerArgs := []string{
+			"run", "--rm",
+			"--network", "host",
+			"-i",
+		}
 		if extra := strings.Fields(os.Getenv("DAST_KATANA_DOCKER_EXTRA")); len(extra) > 0 {
 			dockerArgs = append(dockerArgs, extra...)
 		}
 		dockerArgs = append(dockerArgs, img)
 		dockerArgs = append(dockerArgs, args...)
-		cmd = exec.CommandContext(ctx, dockerPath, dockerArgs...)
+		cmd = exec.CommandContext(ctx, "docker", dockerArgs...)
 	} else {
 		bin := strings.TrimSpace(opts.Binary)
 		if bin == "" {

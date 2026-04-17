@@ -1,0 +1,105 @@
+.table {
+  width: 100%;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  background: #f9fafb;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-light);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: #f9fafb;
+}
+
+.link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.queued {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.running {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.succeeded {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.partial_success {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.date {
+  color: var(--text-light);
+  font-size: 0.875rem;
+}
+
+.deleteBtn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.deleteBtn:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.empty {
+  text-align: center;
+  padding: 3rem;
+  background: var(--surface);
+  border-radius: 8px;
+  color: var(--text-light);
+}
