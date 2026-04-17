@@ -177,7 +177,7 @@ func GetAllScans(ctx context.Context, pool *pgxpool.Pool) ([]Scan, error) {
 
 func UpdateScanStatus(ctx context.Context, pool *pgxpool.Pool, jobID, status string) error {
 	_, err := pool.Exec(ctx,
-		`UPDATE scans SET status = $1, updated_at = NOW(), finished_at = CASE WHEN $1 IN ('SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS') THEN NOW() ELSE NULL END WHERE job_id = $2`,
+		`UPDATE scans SET status = $1::varchar, updated_at = NOW(), finished_at = CASE WHEN $1 IN ('SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED') THEN NOW() ELSE NULL END WHERE job_id = $2`,
 		status, jobID,
 	)
 	return err

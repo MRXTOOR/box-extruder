@@ -5,28 +5,35 @@
 }
 
 .input {
-  padding: 0.75rem 1rem;
+  padding: 11px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 1rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  border-radius: var(--radius-sm);
+  background: rgba(13, 17, 23, 0.65);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.95rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.18);
 }
 
 .input.error {
-  border-color: var(--danger);
+  border-color: var(--bad);
 }
 
 .input::placeholder {
-  color: var(--text-light);
+  color: var(--dim);
+}
+
+.input:hover {
+  border-color: rgba(88, 166, 255, 0.35);
 }
 
 .errorText {
-  color: var(--danger);
+  color: var(--bad);
   font-size: 0.875rem;
 }

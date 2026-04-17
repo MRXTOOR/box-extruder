@@ -40,9 +40,3 @@ CREATE INDEX IF NOT EXISTS idx_scans_user_id ON scans(user_id);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
 CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_users_login ON users(login);
-
--- Insert default admin (password: admin123 - CHANGE IN PRODUCTION!)
--- Password: bcrypt hash of "admin123"
-INSERT INTO users (login, password_hash, role) 
-VALUES ('admin', '$2a$10$rVqK5hE4b8K9mQvP1xW.yO.X9Y5Z6Z6Z6Z6Z6Z6Z6Z6Z6Z6Z6Z6Z6', 'admin')
-ON CONFLICT (login) DO NOTHING;

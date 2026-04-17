@@ -328,6 +328,127 @@ func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	claims := r.Context().Value("user")
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	c, ok := claims.(*auth.Claims)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	jobID := extractJobID(r.URL.Path)
+	if jobID == "" {
+		http.Error(w, "invalid scan id", http.StatusBadRequest)
+		return
+	}
+
+	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	if err != nil {
+		http.Error(w, "scan not found", http.StatusNotFound)
+		return
+	}
+
+	if scan.UserID != c.UserID && c.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if scan.Status == "SUCCEEDED" || scan.Status == "FAILED" || scan.Status == "CANCELED" {
+		http.Error(w, "cannot cancel scan with status "+scan.Status, http.StatusBadRequest)
+		return
+	}
+
+	if err := queue.SetCancelFlag(r.Context(), h.rdb, jobID); err != nil {
+		log.Printf("SetCancelFlag error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "CANCELED",
+	})
+}
+
+func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	claims := r.Context().Value("user")
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	c, ok := claims.(*auth.Claims)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	jobID := extractJobID(r.URL.Path)
+	if jobID == "" {
+		http.Error(w, "invalid scan id", http.StatusBadRequest)
+		return
+	}
+
+	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	if err != nil {
+		http.Error(w, "scan not found", http.StatusNotFound)
+		return
+	}
+
+	if scan.UserID != c.UserID && c.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if scan.Status != "SUCCEEDED" && scan.Status != "FAILED" && scan.Status != "CANCELED" {
+		http.Error(w, "can only restart scans with status SUCCEEDED, FAILED, or CANCELED", http.StatusBadRequest)
+		return
+	}
+
+	newJobID := uuid.NewString()
+
+	if err := db.UpdateScanStatus(r.Context(), h.pool, newJobID, "QUEUED"); err != nil {
+		log.Printf("RestartScan update status error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	job := queue.JobMessage{
+		JobID:     newJobID,
+		UserID:    c.UserID,
+		TargetURL: scan.TargetURL,
+	}
+
+	if err := queue.Enqueue(r.Context(), h.rdb, job); err != nil {
+		log.Printf("RestartScan enqueue error: %v", err)
+		db.UpdateScanStatus(r.Context(), h.pool, newJobID, "FAILED")
+		http.Error(w, "failed to queue scan", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"id":        newJobID,
+		"targetUrl": scan.TargetURL,
+		"status":    "QUEUED",
+	})
+}
+
 func extractJobID(path string) string {
 	re := regexp.MustCompile(`/scans/([^/]+)`)
 	matches := re.FindStringSubmatch(path)

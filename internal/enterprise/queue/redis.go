@@ -51,6 +51,7 @@ type JobMessage struct {
 }
 
 const ScanQueueKey = "dast:scan:queue"
+const CancelKeyPrefix = "dast:scan:cancel:"
 
 func Enqueue(ctx context.Context, rdb *redis.Client, job JobMessage) error {
 	job.CreatedAt = time.Now().Unix()
@@ -75,4 +76,23 @@ func Dequeue(ctx context.Context, rdb *redis.Client, timeout time.Duration) (*Jo
 
 func GetQueueLen(ctx context.Context, rdb *redis.Client) (int64, error) {
 	return rdb.LLen(ctx, ScanQueueKey).Result()
+}
+
+func SetCancelFlag(ctx context.Context, rdb *redis.Client, jobID string) error {
+	return rdb.Set(ctx, CancelKeyPrefix+jobID, "1", 24*time.Hour).Err()
+}
+
+func GetCancelFlag(ctx context.Context, rdb *redis.Client, jobID string) (bool, error) {
+	result, err := rdb.Get(ctx, CancelKeyPrefix+jobID).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return result == "1", nil
+}
+
+func ClearCancelFlag(ctx context.Context, rdb *redis.Client, jobID string) error {
+	return rdb.Del(ctx, CancelKeyPrefix+jobID).Err()
 }

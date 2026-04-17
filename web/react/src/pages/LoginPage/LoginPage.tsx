@@ -20,7 +20,7 @@ export function LoginPage() {
 
       if (!res.ok) {
         const data = await res.json()
-        setError(data.error || 'Login failed')
+        setError(data.error || 'Ошибка входа')
         return
       }
 
@@ -28,28 +28,28 @@ export function LoginPage() {
       localStorage.setItem('token', data.token)
       navigate('/')
     } catch {
-      setError('Network error')
+      setError('Ошибка сети')
     }
   }
 
   return (
-    <div className="login-page">
-      <form className="login-form" onSubmit={handleSubmit}>
-        <h2>Login</h2>
+    <div className="loginPage">
+      <form className="loginForm" onSubmit={handleSubmit}>
+        <h2>Вход в систему</h2>
         {error && <div className="error">{error}</div>}
         <input
           type="text"
-          placeholder="Login"
+          placeholder="Логин"
           value={login}
           onChange={(e) => setLogin(e.target.value)}
         />
         <input
           type="password"
-          placeholder="Password"
+          placeholder="Пароль"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button type="submit">Sign In</button>
+        <button type="submit">Войти</button>
       </form>
     </div>
   )

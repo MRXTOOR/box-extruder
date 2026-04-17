@@ -1,15 +1,18 @@
 import { FC, useEffect, useState } from 'react'
-import { ContainerStatus } from '../../entities/Container/model/types'
 import styles from './ContainerStatusWidget.module.css'
 
-interface ContainerStatusWidgetProps {
-  onRefresh?: () => void
+interface ContainerStatus {
+  name: string
+  image: string
+  status: string
+  health: string
 }
 
-export const ContainerStatusWidget: FC<ContainerStatusWidgetProps> = () => {
+export const ContainerStatusWidget: FC = () => {
   const [containers, setContainers] = useState<ContainerStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
 
   useEffect(() => {
     loadContainers()
@@ -25,10 +28,11 @@ export const ContainerStatusWidget: FC<ContainerStatusWidgetProps> = () => {
       })
       if (!res.ok) throw new Error('Failed to load containers')
       const data = await res.json()
-      setContainers(data)
+      setContainers(data || [])
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
+      setContainers([])
     } finally {
       setLoading(false)
     }
@@ -37,6 +41,8 @@ export const ContainerStatusWidget: FC<ContainerStatusWidgetProps> = () => {
   const unhealthyContainers = containers.filter(
     c => c.health === 'unhealthy' || c.health === 'dead' || c.health === 'restarting'
   )
+
+  const displayedContainers = showAll ? containers : containers.slice(0, 5)
 
   const getHealthIcon = (health: string) => {
     switch (health) {
@@ -50,39 +56,57 @@ export const ContainerStatusWidget: FC<ContainerStatusWidgetProps> = () => {
     }
   }
 
-  if (loading) return <div className={styles.loading}>Loading containers...</div>
-  if (error) return <div className={styles.error}>{error}</div>
+  if (loading) return <div className={styles.widget}>
+    <div className={styles.header}>
+      <h3>Контейнеры</h3>
+    </div>
+    <div className={styles.loading}>Загрузка...</div>
+  </div>
 
   return (
     <div className={styles.widget}>
       <div className={styles.header}>
-        <h3>Container Status</h3>
+        <h3>Контейнеры</h3>
         <button className={styles.refresh} onClick={loadContainers}>↻</button>
       </div>
 
-      {unhealthyContainers.length > 0 && (
+      {error && (
         <div className={styles.alert}>
           <span className={styles.alertIcon}>⚠</span>
-          <span>{unhealthyContainers.length} container(s) have issues</span>
+          <span>Контейнеры недоступны</span>
+        </div>
+      )}
+
+      {!error && unhealthyContainers.length > 0 && (
+        <div className={styles.alert}>
+          <span className={styles.alertIcon}>⚠</span>
+          <span>{unhealthyContainers.length} контейнер(ов) с проблемами</span>
         </div>
       )}
 
       <div className={styles.list}>
-        {containers.length === 0 ? (
-          <div className={styles.empty}>No containers found</div>
-        ) : (
-          containers.map((c, i) => (
-            <div key={i} className={`${styles.item} ${styles[c.health]}`}>
-              <span className={styles.icon}>{getHealthIcon(c.health)}</span>
-              <div className={styles.info}>
-                <span className={styles.name}>{c.name}</span>
-                <span className={styles.image}>{c.image}</span>
-              </div>
-              <span className={styles.status}>{c.status}</span>
+        {!error && containers.length === 0 ? (
+          <div className={styles.empty}>Контейнеры не найдены</div>
+        ) : !error && displayedContainers.map((c, i) => (
+          <div key={i} className={`${styles.item} ${styles[c.health]}`}>
+            <span className={styles.icon}>{getHealthIcon(c.health)}</span>
+            <div className={styles.info}>
+              <span className={styles.name}>{c.name}</span>
+              <span className={styles.image}>{c.image}</span>
             </div>
-          ))
-        )}
+            <span className={styles.status}>{c.status}</span>
+          </div>
+        ))}
       </div>
+
+      {!error && containers.length > 5 && (
+        <button 
+          className={styles.showMore}
+          onClick={() => setShowAll(!showAll)}
+        >
+          {showAll ? 'Свернуть' : `Показать ещё ${containers.length - 5}`}
+        </button>
+      )}
     </div>
   )
 }

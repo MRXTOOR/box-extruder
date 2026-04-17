@@ -13,6 +13,7 @@ import (
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
 	"github.com/box-extruder/dast/internal/runner"
+	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,8 +67,20 @@ func main() {
 				}
 				continue
 			}
+
+			canceled, err := queue.GetCancelFlag(ctx, rdb, job.JobID)
+			if err != nil {
+				log.Printf("Warning: failed to check cancel flag: %v", err)
+			}
+			if canceled {
+				log.Printf("Job %s was canceled before start", job.JobID)
+				queue.ClearCancelFlag(ctx, rdb, job.JobID)
+				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELED")
+				continue
+			}
+
 			log.Printf("Processing job: %s for target %s", job.JobID, job.TargetURL)
-			processJob(ctx, pool, workDir, job)
+			processJob(ctx, pool, rdb, workDir, job)
 		}
 	}
 }
@@ -78,7 +91,7 @@ var redisHost, redisPass string
 var redisPort int
 var workDir string
 
-func processJob(ctx context.Context, pool *db.Pool, workDir string, job *queue.JobMessage) {
+func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir string, job *queue.JobMessage) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Job %s panic: %v", job.JobID, r)
@@ -106,16 +119,28 @@ func processJob(ctx context.Context, pool *db.Pool, workDir string, job *queue.J
 		return
 	}
 
-	opts := runner.Options{
+	runnerOpts := runner.Options{
 		WorkDir:       workDir,
 		ConfigYAML:    yamlData,
 		Config:        parsedCfg,
 		JobID:         job.JobID,
 		ConfigFileDir: "/workspace",
+		OnProgress: func(ts time.Time, level, msg string, fields map[string]string) {
+			if canceled, _ := queue.GetCancelFlag(ctx, rdb, job.JobID); canceled {
+				log.Printf("Job %s canceled during execution", job.JobID)
+				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELED")
+				panic("canceled")
+			}
+		},
 	}
 
-	_, err = runner.Run(opts)
+	_, err = runner.Run(runnerOpts)
 	if err != nil {
+		if canceled, _ := queue.GetCancelFlag(ctx, rdb, job.JobID); canceled {
+			log.Printf("Job %s was canceled", job.JobID)
+			db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELED")
+			return
+		}
 		log.Printf("Job %s failed: %v", job.JobID, err)
 		db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
 		return

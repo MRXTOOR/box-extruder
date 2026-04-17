@@ -116,6 +116,8 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/scans/{id}", h.authMiddleware(h.handleGetScan))
 	mux.HandleFunc("DELETE /api/v1/scans/{id}", h.authMiddleware(h.handleDeleteScan))
 	mux.HandleFunc("GET /api/v1/scans/{id}/status", h.authMiddleware(h.handleScanStatus))
+	mux.HandleFunc("POST /api/v1/scans/{id}/cancel", h.authMiddleware(h.handleCancelScan))
+	mux.HandleFunc("POST /api/v1/scans/{id}/restart", h.authMiddleware(h.handleRestartScan))
 	mux.HandleFunc("GET /api/v1/scans/{id}/reports", h.handleReports)
 	mux.HandleFunc("GET /api/v1/scans/{id}/endpoints", h.handleEndpoints)
 

@@ -1,25 +1,21 @@
 .table {
   width: 100%;
-  background: var(--surface);
-  border-radius: 8px;
-  overflow: hidden;
   border-collapse: collapse;
 }
 
 .table th,
 .table td {
-  padding: 1rem;
+  padding: 12px 14px;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
 
 .table th {
-  background: #f9fafb;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-light);
+  letter-spacing: 0.08em;
+  color: var(--dim);
 }
 
 .table tr:last-child td {
@@ -27,11 +23,11 @@
 }
 
 .table tr:hover td {
-  background: #f9fafb;
+  background: rgba(88, 166, 255, 0.05);
 }
 
 .link {
-  color: var(--primary);
+  color: var(--accent);
   text-decoration: none;
   font-weight: 500;
 }
@@ -42,64 +38,83 @@
 
 .status {
   display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
 }
 
-.queued {
-  background: #fef3c7;
-  color: #92400e;
+.status.succeeded {
+  background: var(--ok-bg);
+  color: var(--ok);
 }
 
-.running {
-  background: #dbeafe;
-  color: #1e40af;
+.status.failed {
+  background: var(--bad-bg);
+  color: var(--bad);
 }
 
-.succeeded {
-  background: #dcfce7;
-  color: #166534;
+.status.partial_success {
+  background: rgba(210, 153, 34, 0.14);
+  color: var(--warn);
 }
 
-.failed {
-  background: #fee2e2;
-  color: #991b1b;
+.status.running,
+.status.queued {
+  background: rgba(88, 166, 255, 0.1);
+  color: var(--accent);
 }
 
-.partial_success {
-  background: #ffedd5;
-  color: #9a3412;
+.status.waiting_for_auth {
+  background: rgba(163, 113, 247, 0.15);
+  color: #a371f7;
+}
+
+.status.pending,
+.status.cancelled {
+  background: rgba(110, 118, 129, 0.15);
+  color: var(--dim);
 }
 
 .date {
-  color: var(--text-light);
-  font-size: 0.875rem;
+  color: var(--dim);
+  font-size: 0.8rem;
 }
 
-.deleteBtn {
-  padding: 0.5rem 1rem;
-  background: transparent;
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  border-radius: 4px;
-  font-size: 0.875rem;
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actionBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s;
 }
 
-.deleteBtn:hover {
-  background: var(--danger);
-  color: white;
+.actionBtn:hover {
+  background: var(--hover);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.actionBtn.delete:hover {
+  border-color: var(--bad);
+  color: var(--bad);
 }
 
 .empty {
   text-align: center;
-  padding: 3rem;
-  background: var(--surface);
-  border-radius: 8px;
-  color: var(--text-light);
+  padding: 2rem 1rem;
+  color: var(--dim);
+  font-size: 0.9rem;
 }

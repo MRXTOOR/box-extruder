@@ -1,12 +1,13 @@
 .card {
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 1.25rem;
-  border-left: 4px solid var(--border);
+  background: rgba(13, 17, 23, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  border-left: 3px solid var(--border);
 }
 
 .card.critical {
-  border-left-color: var(--danger);
+  border-left-color: var(--bad);
 }
 
 .card.high {
@@ -14,81 +15,85 @@
 }
 
 .card.medium {
-  border-left-color: var(--warning);
+  border-left-color: var(--warn);
 }
 
 .card.low {
-  border-left-color: var(--primary);
+  border-left-color: var(--accent);
 }
 
 .card.info {
-  border-left-color: var(--text-light);
+  border-left-color: var(--dim);
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 0.75rem;
+  margin-bottom: 8px;
 }
 
 .name {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--text);
   margin: 0;
 }
 
 .badge {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
   text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .badge.critical {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--bad-bg);
+  color: var(--bad);
 }
 
 .badge.high {
-  background: #ffedd5;
-  color: #9a3412;
+  background: rgba(234, 88, 12, 0.15);
+  color: #ea580c;
 }
 
 .badge.medium {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(210, 153, 34, 0.14);
+  color: var(--warn);
 }
 
 .badge.low {
-  background: #dbeafe;
-  color: #1e40af;
+  background: rgba(88, 166, 255, 0.1);
+  color: var(--accent);
 }
 
 .badge.info {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: rgba(110, 118, 129, 0.15);
+  color: var(--dim);
 }
 
 .description {
-  color: var(--text-light);
-  font-size: 0.875rem;
+  color: var(--muted);
+  font-size: 0.85rem;
   line-height: 1.6;
   margin: 0;
 }
 
 .evidence {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  background: #f9fafb;
-  border-radius: 4px;
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(7, 10, 14, 0.5);
+  border-radius: 6px;
   overflow-x: auto;
 }
 
 .evidence pre {
   margin: 0;
   font-size: 0.75rem;
-  font-family: monospace;
+  font-family: var(--mono);
+  color: #9da7b0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

@@ -10,7 +10,15 @@ export interface Scan {
   finishedAt?: string
 }
 
-export type ScanStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'PARTIAL_SUCCESS'
+export type ScanStatus = 
+  | 'QUEUED' 
+  | 'RUNNING' 
+  | 'SUCCEEDED' 
+  | 'FAILED' 
+  | 'PARTIAL_SUCCESS'
+  | 'WAITING_FOR_AUTH'
+  | 'PENDING'
+  | 'CANCELLED'
 
 export interface Finding {
   id: string
@@ -32,3 +40,17 @@ export interface User {
 }
 
 export type UserRole = 'admin' | 'specialist'
+
+export interface ScanConfig {
+  targetUrl: string
+  login?: string
+  password?: string
+  authUrl?: string
+  verifyUrl?: string
+  katanaDepth?: number
+  katanaMaxUrls?: number
+  zapSpiderMinutes?: number
+  zapPassiveSecs?: number
+  startPoints?: string
+  insecureSkipVerify?: boolean
+}

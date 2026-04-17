@@ -1,4 +1,4 @@
-import { FC } from 'react'
+import { FC, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Scan, ScanStatus } from '../../entities/Scan/model/types'
 import styles from './ScanTable.module.css'
@@ -9,20 +9,34 @@ export interface ScanTableProps {
 }
 
 const statusLabels: Record<ScanStatus, string> = {
-  QUEUED: 'Queued',
-  RUNNING: 'Running',
-  SUCCEEDED: 'Succeeded',
-  FAILED: 'Failed',
-  PARTIAL_SUCCESS: 'Partial',
+  QUEUED: 'В очереди',
+  RUNNING: 'Выполняется',
+  SUCCEEDED: 'Завершён',
+  FAILED: 'Ошибка',
+  PARTIAL_SUCCESS: 'Частично',
+  WAITING_FOR_AUTH: 'Ожидание авторизации',
+  PENDING: 'Приостановлен',
+  CANCELLED: 'Отменён',
+}
+
+function getStatusClass(status: string): string {
+  return status.toLowerCase().replace('_', '-')
 }
 
 export const ScanTable: FC<ScanTableProps> = ({ scans, onDelete }) => {
+  const [downloadTarget, setDownloadTarget] = useState<string | null>(null)
+
   if (scans.length === 0) {
     return (
       <div className={styles.empty}>
-        <p>No scans yet. Start your first scan above.</p>
+        <p>Нет сохранённых сканов</p>
       </div>
     )
+  }
+
+  const handleDownload = (jobId: string) => {
+    setDownloadTarget(jobId)
+    window.open(`/api/v1/jobs/${jobId}/reports`, '_blank')
   }
 
   return (
@@ -44,20 +58,34 @@ export const ScanTable: FC<ScanTableProps> = ({ scans, onDelete }) => {
               </Link>
             </td>
             <td>
-              <span className={`${styles.status} ${styles[scan.status.toLowerCase()]}`}>
-                {statusLabels[scan.status]}
+              <span className={`${styles.status} ${styles[getStatusClass(scan.status)]}`}>
+                {statusLabels[scan.status] || scan.status}
               </span>
             </td>
             <td className={styles.date}>
-              {new Date(scan.createdAt).toLocaleString()}
+              {new Date(scan.createdAt).toLocaleDateString('ru-RU', {
+                day: '2-digit',
+                month: '2-digit',
+                year: '2-digit',
+              })}
             </td>
             <td>
-              <button
-                className={styles.deleteBtn}
-                onClick={() => onDelete(scan.jobId)}
-              >
-                Delete
-              </button>
+              <div className={styles.actions}>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => handleDownload(scan.jobId)}
+                  title="Скачать отчёт"
+                >
+                  📥
+                </button>
+                <button
+                  className={`${styles.actionBtn} ${styles.delete}`}
+                  onClick={() => onDelete(scan.jobId)}
+                  title="Удалить"
+                >
+                  🗑
+                </button>
+              </div>
             </td>
           </tr>
         ))}
