@@ -78,6 +78,7 @@ func ReadJob(workDir, jobID string) (*model.Job, error) {
 	p := filepath.Join(JobRoot(workDir, jobID), "job.json")
 	data, err := os.ReadFile(p)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "ReadJob: failed to read %s: %v\n", p, err)
 		return nil, err
 	}
 	var j model.Job

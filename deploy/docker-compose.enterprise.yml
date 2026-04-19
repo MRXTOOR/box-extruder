@@ -36,6 +36,7 @@ services:
       context: ..
       dockerfile: Dockerfile.server
     container_name: deploy-dast-server
+    user: "0:0"
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +53,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-changeme}
       - WORK_DIR=/workspace/work
     volumes:
-      - dast_work:/workspace/work
+      - /workspace/work:/workspace/work
     ports:
       - "8080:8080"
     healthcheck:
@@ -66,6 +67,7 @@ services:
       context: ..
       dockerfile: Dockerfile.worker
     container_name: deploy-dast-worker
+    user: "0:0"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,8 +82,12 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - WORK_DIR=/workspace/work
+      - DAST_KATANA_DOCKER_IMAGE=projectdiscovery/katana:latest
+      - DAST_ZAP_DOCKER_IMAGE=ghcr.io/zaproxy/zaproxy:stable
+      - DAST_SKIP_NUCLEI_CLI=1
+      - DAST_ZAP_DOCKER_EXTRA=-v /workspace/work:/workspace/work:ro
     volumes:
-      - dast_work:/workspace/work
+      - /workspace/work:/workspace/work
       - /var/run/docker.sock:/var/run/docker.sock
 
   frontend:
@@ -105,4 +111,3 @@ services:
 
 volumes:
   postgres_data:
-  dast_work:

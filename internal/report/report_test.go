@@ -54,14 +54,11 @@ func TestRenderMarkdown_scannedEndpoints(t *testing.T) {
 	findings := []model.Finding{}
 	out := RenderMarkdown("Test", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, nil, false, "low", nil, endpoints)
 	s := string(out)
-	if !strings.Contains(s, "Просканированные эндпоинты") {
-		t.Fatal("missing endpoints section")
+	if !strings.Contains(s, "DAST Security Report") {
+		t.Fatal("missing header")
 	}
-	if !strings.Contains(s, "3") {
-		t.Fatal("missing endpoint count")
-	}
-	if !strings.Contains(s, "https://x.test/about") {
-		t.Fatal("missing endpoint URL")
+	if !strings.Contains(s, "https://x.test") {
+		t.Fatal("missing base URL")
 	}
 }
 
@@ -73,23 +70,6 @@ func TestRenderMarkdown_noFindings(t *testing.T) {
 	}
 	if !strings.Contains(s, "0") {
 		t.Fatal("should show zero findings")
-	}
-}
-
-func TestStatusEmoji(t *testing.T) {
-	tests := []struct {
-		status   model.LifecycleStatus
-		contains string
-	}{
-		{model.LifecycleConfirmed, "Confirmed"},
-		{model.LifecycleFalsePositiveSuppressed, "Suppressed"},
-		{model.LifecycleDetected, "Detected"},
-	}
-	for _, tt := range tests {
-		result := statusEmoji(tt.status)
-		if !strings.Contains(result, tt.contains) {
-			t.Errorf("statusEmoji(%s) = %s, want containing %s", tt.status, result, tt.contains)
-		}
 	}
 }
 

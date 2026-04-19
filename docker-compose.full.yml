@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: dast-postgres
+    environment:
+      POSTGRES_USER: dast
+      POSTGRES_PASSWORD: dast
+      POSTGRES_DB: dast
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dast"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dast-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dast-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: dast-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=dast
+      - DB_PASS=dast
+      - DB_NAME=dast
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=changeme
+      - WORK_DIR=/workspace/work
+    volumes:
+      - ./work:/workspace/work
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  dast-worker:
+    image: box-extruder/dast-worker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: dast-worker
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=dast
+      - DB_PASS=dast
+      - DB_NAME=dast
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORK_DIR=/workspace/work
+      - DAST_ZAP_LOCAL=1
+      - DAST_ZAP_PORT=9090
+      - DAST_ZAP_SH=/opt/ZAP/ZAP_D-2026-04-14/zap.sh
+    volumes:
+      - ./work:/workspace/work
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint: ["/bin/sh","-c"]
+    command: ["apk add --no-cache libc6-compat bash wget wget libstdc++ openjdk21 && wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download/w2026-04-14/ZAP_WEEKLY_D-2026-04-14.zip && mkdir -p /opt/ZAP && unzip -q /tmp/zap.zip -d /opt/ZAP && ZAP_DIR=$(ls /opt/ZAP/ | head -1) && ln -sf /opt/ZAP/$ZAP_DIR/zap.sh /usr/local/bin/zap.sh && rm /tmp/zap.zip && dast-worker"]
+
+  nginx:
+    image: nginx:alpine
+    container_name: dast-nginx
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/react/dist:/usr/share/nginx/html:ro
+    ports:
+      - "80:80"
+    depends_on:
+      dast-server:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

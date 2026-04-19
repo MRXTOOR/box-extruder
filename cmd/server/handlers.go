@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/box-extruder/dast/internal/enterprise/auth"
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
+	"github.com/box-extruder/dast/internal/storage"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -188,7 +193,10 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 
 	jobID := extractJobID(r.URL.Path)
 
-	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	scan, err := db.GetScanByID(r.Context(), h.pool, jobID)
+	if err != nil {
+		scan, err = db.GetScanByJobID(r.Context(), h.pool, jobID)
+	}
 	if err != nil {
 		http.Error(w, "scan not found", http.StatusNotFound)
 		return
@@ -199,8 +207,18 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	findings, _ := db.GetFindingsByScanID(r.Context(), h.pool, scan.ID)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(scan)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        scan.ID,
+		"jobId":     scan.JobID,
+		"targetUrl":  scan.TargetURL,
+		"status":     scan.Status,
+		"createdAt":  scan.CreatedAt,
+		"finishedAt":  scan.FinishedAt,
+		"findings":   findings,
+	})
 }
 
 func (h *Handler) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +241,10 @@ func (h *Handler) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
 
 	jobID := extractJobID(r.URL.Path)
 
-	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	scan, err := db.GetScanByID(r.Context(), h.pool, jobID)
+	if err != nil {
+		scan, err = db.GetScanByJobID(r.Context(), h.pool, jobID)
+	}
 	if err != nil {
 		http.Error(w, "scan not found", http.StatusNotFound)
 		return
@@ -257,8 +278,12 @@ func (h *Handler) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := extractJobID(r.URL.Path)
+	log.Printf("handleScanStatus: jobID=%s, workDir=%s", jobID, h.workDir)
 
-	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	scan, err := db.GetScanByID(r.Context(), h.pool, jobID)
+	if err != nil {
+		scan, err = db.GetScanByJobID(r.Context(), h.pool, jobID)
+	}
 	if err != nil {
 		http.Error(w, "scan not found", http.StatusNotFound)
 		return
@@ -269,38 +294,138 @@ func (h *Handler) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	j, readErr := storage.ReadJob(h.workDir, jobID)
+	if readErr != nil {
+		log.Printf("ERROR: ReadJob failed for %s: %v (workDir=%s)", jobID, readErr, h.workDir)
+		j = nil
+	} else {
+		log.Printf("SUCCESS: ReadJob for %s returned job with startedAt=%v, finishedAt=%v, steps=%d", 
+			jobID, j.StartedAt, j.FinishedAt, len(j.Steps))
+	}
+
+	var elapsedSeconds int64
+	var progress int
+	completedSteps, totalSteps := 0, 0
+	if j != nil && j.StartedAt != nil && !j.StartedAt.IsZero() {
+		end := time.Now()
+		if j.FinishedAt != nil && !j.FinishedAt.IsZero() {
+			end = *j.FinishedAt
+		}
+		elapsedSeconds = int64(end.Sub(*j.StartedAt).Seconds())
+
+		totalSteps = len(j.Steps)
+		for _, step := range j.Steps {
+			if step.Status == "SUCCEEDED" || step.Status == "FAILED" || step.Status == "SKIPPED" {
+				completedSteps++
+			}
+		}
+		if totalSteps > 0 {
+			progress = (completedSteps * 100) / totalSteps
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": scan.Status,
+	var steps []map[string]any
+	if j != nil && j.Steps != nil {
+		for _, s := range j.Steps {
+			steps = append(steps, map[string]any{
+				"stepType": string(s.StepType),
+				"status":   string(s.Status),
+				"error":    s.Error,
+			})
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":           scan.Status,
+		"elapsedSeconds":   elapsedSeconds,
+		"progress":         progress,
+		"completedSteps":   completedSteps,
+		"totalSteps":       totalSteps,
+		"steps":            steps,
 	})
 }
 
 func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 	jobID := extractJobID(r.URL.Path)
-	reportPath := fmt.Sprintf("%s/jobs/%s/reports/report.md", h.workDir, jobID)
-
-	data, err := readFile(reportPath)
-	if err != nil {
-		http.Error(w, "report not found", http.StatusNotFound)
+	format := r.URL.Query().Get("format")
+	
+	workDir := h.workDir
+	reportsDir := filepath.Join(workDir, "jobs", jobID, "reports")
+	
+	switch strings.ToLower(format) {
+	case "html":
+		reportPath := filepath.Join(reportsDir, "report.html")
+		data, err := os.ReadFile(reportPath)
+		if err != nil {
+			http.Error(w, "HTML report not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.html\"", jobID[:8]))
+		w.Write(data)
+		return
+	case "docx":
+		reportPath := filepath.Join(reportsDir, "report.docx")
+		data, err := os.ReadFile(reportPath)
+		if err != nil {
+			// Try HTML as fallback
+			htmlPath := filepath.Join(reportsDir, "report.html")
+			data, err = os.ReadFile(htmlPath)
+			if err != nil {
+				http.Error(w, "DOCX report not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.html\"", jobID[:8]))
+			w.Write(data)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.docx\"", jobID[:8]))
+		w.Write(data)
+		return
+	default:
+		reportPath := filepath.Join(reportsDir, "report.md")
+		data, err := os.ReadFile(reportPath)
+		if err != nil {
+			http.Error(w, "report not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.md\"", jobID[:8]))
+		w.Write(data)
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/markdown")
-	w.Write(data)
 }
 
 func (h *Handler) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	jobID := extractJobID(r.URL.Path)
-	endpointsPath := fmt.Sprintf("%s/jobs/%s/contexts/contexts.jsonl", h.workDir, jobID)
+	contextsDir := fmt.Sprintf("%s/jobs/%s/contexts", h.workDir, jobID)
 
-	data, err := readFile(endpointsPath)
+	files, err := os.ReadDir(contextsDir)
 	if err != nil {
 		http.Error(w, "endpoints not found", http.StatusNotFound)
 		return
 	}
 
+	var lines []string
+	for _, f := range files {
+		if !f.IsDir() && strings.HasPrefix(f.Name(), "context-") {
+			data, err := os.ReadFile(filepath.Join(contextsDir, f.Name()))
+			if err != nil {
+				continue
+			}
+			lines = append(lines, string(data))
+		}
+	}
+
+	if len(lines) == 0 {
+		http.Error(w, "endpoints not found", http.StatusNotFound)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	w.Write([]byte("[" + strings.Join(lines, ",") + "]"))
 }
 
 func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +477,10 @@ func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	scan, err := db.GetScanByID(r.Context(), h.pool, jobID)
+	if err != nil {
+		scan, err = db.GetScanByJobID(r.Context(), h.pool, jobID)
+	}
 	if err != nil {
 		http.Error(w, "scan not found", http.StatusNotFound)
 		return
@@ -404,7 +532,10 @@ func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, err := db.GetScanByJobID(r.Context(), h.pool, jobID)
+	scan, err := db.GetScanByID(r.Context(), h.pool, jobID)
+	if err != nil {
+		scan, err = db.GetScanByJobID(r.Context(), h.pool, jobID)
+	}
 	if err != nil {
 		http.Error(w, "scan not found", http.StatusNotFound)
 		return
@@ -469,8 +600,4 @@ func isValidURL(url string) bool {
 func sanitizeInput(input string) string {
 	input = regexp.MustCompile(`[\x00-\x1F\x7F]`).ReplaceAllString(input, "")
 	return input
-}
-
-func readFile(path string) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
 }

@@ -1,4 +1,4 @@
-import { Scan, Finding, ScanConfig } from '../../entities/Scan/model/types'
+import { Scan, Finding, ScanConfig, ScanStatusResponse } from '../../entities/Scan/model/types'
 
 const BASE_URL = '/api/v1'
 
@@ -76,7 +76,7 @@ export const api = {
     if (!res.ok) throw new Error('Delete failed')
   },
 
-  async getScanStatus(id: string): Promise<{ status: string } | string> {
+  async getScanStatus(id: string): Promise<ScanStatusResponse | string> {
     try {
       const res = await fetch(`${BASE_URL}/scans/${id}/status`, { headers: headers() })
       const text = await res.text()

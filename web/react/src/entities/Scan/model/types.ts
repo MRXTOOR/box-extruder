@@ -54,3 +54,18 @@ export interface ScanConfig {
   startPoints?: string
   insecureSkipVerify?: boolean
 }
+
+export interface StepInfo {
+  stepType: string
+  status: string
+  error?: string
+}
+
+export interface ScanStatusResponse {
+  status: string
+  elapsedSeconds?: number
+  progress?: number
+  completedSteps?: number
+  totalSteps?: number
+  steps?: StepInfo[]
+}

@@ -286,9 +286,14 @@ func runPipeline(opt Options) (string, error) {
 				emit(opt, jobID, "info", "Katana CLI: skipped (-skip-katana or DAST_SKIP_KATANA_CLI=1)")
 				break
 			}
-			seeds := katanaSeedURLs(cfg)
-			if len(cfg.Targets) > 0 {
-				base := cfg.Targets[0].BaseURL
+seeds := katanaSeedURLs(cfg)
+	if len(cfg.Targets) > 0 {
+		base := cfg.Targets[0].BaseURL
+		if strings.HasPrefix(base, "http://localhost") || strings.HasPrefix(base, "http://127.0.0.1") {
+			base = strings.Replace(base, "localhost", "host.docker.internal", 1)
+			base = strings.Replace(base, "127.0.0.1", "host.docker.internal", 1)
+		}
+		cfg.Targets[0].BaseURL = base
 				if payloads.SQLiEnabled() {
 					sp := payloads.SQLiPath(jobRoot)
 					if _, err := os.Stat(sp); err == nil {

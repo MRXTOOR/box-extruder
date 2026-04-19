@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ScanForm, ScanConfig } from '../../widgets/ScanForm/ScanForm'
 import { api } from '../../shared/api/api'
-import { Scan } from '../../entities/Scan/model/types'
+import { Scan, ScanStatusResponse } from '../../entities/Scan/model/types'
 import styles from './ScansPage.module.css'
 
 const statusLabels: Record<string, string> = {
@@ -39,6 +39,36 @@ export function ScansPage() {
     }
   }, [])
 
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const formatStatus = (status: ScanStatusResponse): string => {
+    const lines: string[] = []
+    lines.push(`Статус: ${statusLabels[status.status] || status.status}`)
+    if (status.elapsedSeconds !== undefined) {
+      lines.push(`Время: ${formatTime(status.elapsedSeconds)}`)
+    }
+    if (status.totalSteps && status.totalSteps > 0) {
+      lines.push(`Прогресс: ${status.completedSteps}/${status.totalSteps} (${status.progress}%)`)
+      if (status.steps && status.steps.length > 0) {
+        lines.push('')
+        status.steps.forEach((step, i) => {
+          const stepName = step.stepType === 'katana' ? 'Katana' :
+                        step.stepType === 'zapBaseline' ? 'ZAP' :
+                        step.stepType === 'nucleiCLI' ? 'Nuclei' : step.stepType
+          const stepStatus = step.status === 'SUCCEEDED' ? '✓' :
+                            step.status === 'RUNNING' ? '…' :
+                            step.status === 'FAILED' ? '✗' : '-'
+          lines.push(`  ${stepStatus} ${stepName}`)
+        })
+      }
+    }
+    return lines.join('\n')
+  }
+
   const startStatusPolling = (jobId: string) => {
     setCurrentJobId(jobId)
     setCurrentJobStatus('Запуск...')
@@ -49,10 +79,11 @@ export function ScansPage() {
     pollingRef.current = setInterval(async () => {
       try {
         const status = await api.getScanStatus(jobId)
-        if (status) {
-          setCurrentJobStatus(typeof status === 'object' ? JSON.stringify(status, null, 2) : String(status))
+        if (status && typeof status === 'object' && 'status' in status) {
+          const typedStatus = status as ScanStatusResponse
+          setCurrentJobStatus(formatStatus(typedStatus))
           
-          const statusStr = typeof status === 'object' ? status.status : String(status)
+          const statusStr = typedStatus.status
           const kind = statusKind(statusStr)
           setCurrentJobKind(kind)
           
@@ -60,6 +91,8 @@ export function ScansPage() {
             if (pollingRef.current) clearInterval(pollingRef.current)
             setAutoDetectStatus(statusStr === 'SUCCEEDED' ? 'ok' : statusStr === 'FAILED' ? 'fail' : 'idle')
           }
+        } else {
+          setCurrentJobStatus(typeof status === 'object' ? JSON.stringify(status, null, 2) : String(status))
         }
       } catch (err) {
         console.error('Status polling error:', err)
@@ -90,10 +123,11 @@ export function ScansPage() {
     setAutoDetectStatus('pending')
     try {
       const scan = await api.createScan({ targetUrl, ...config })
-      if (scan && scan.jobId) {
+      const jobId = scan.jobId || scan.id
+      if (jobId) {
         setAutoDetectStatus('ok')
         loadScans()
-        startStatusPolling(scan.jobId || scan.id)
+        startStatusPolling(jobId)
       } else {
         setAutoDetectStatus('fail')
       }
@@ -178,9 +212,10 @@ export function ScansPage() {
                 <pre className={`${styles.jobStatus} ${styles[currentJobKind]}`}>{currentJobStatus}</pre>
                 {currentJobId && (
                   <div className={styles.links}>
-                    <a href={`/api/v1/scans/${currentJobId}/reports`} target="_blank" rel="noopener">Отчёт markdown</a>
-                    <a href={`/api/v1/scans/${currentJobId}/reports?format=docx`} target="_blank" rel="noopener">Отчёт DOCX / HTML</a>
-                    <a href={`/api/v1/scans/${currentJobId}/events`} target="_blank" rel="noopener">События JSONL</a>
+                    <a href={`/api/v1/scans/${currentJobId}/reports?format=md`} target="_blank" rel="noopener">Markdown</a>
+                    <a href={`/api/v1/scans/${currentJobId}/reports?format=html`} target="_blank" rel="noopener">HTML</a>
+                    <a href={`/api/v1/scans/${currentJobId}/reports?format=docx`} target="_blank" rel="noopener">DOCX</a>
+                    <a href={`/api/v1/scans/${currentJobId}/events`} target="_blank" rel="noopener">JSONL</a>
                   </div>
                 )}
               </div>

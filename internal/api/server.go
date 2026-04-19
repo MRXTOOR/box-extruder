@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/box-extruder/dast/internal/auth/discovery"
 	"github.com/box-extruder/dast/internal/config"
@@ -28,6 +29,8 @@ func NewServer(workDir string) *Server {
 // Mount registers routes on mux (Go 1.22+ patterns).
 func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/discover", s.handleAuthDiscover)
+
+	// jobs endpoints
 	mux.HandleFunc("GET /api/v1/jobs", s.handleListJobs)
 	mux.HandleFunc("POST /api/v1/jobs", s.handleCreateJob)
 	mux.HandleFunc("POST /api/v1/jobs/{id}/start", s.handleStartJob)
@@ -37,6 +40,19 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/jobs/{id}/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/jobs/{id}/reports", s.handleReports)
 	mux.HandleFunc("GET /api/v1/jobs/{id}/endpoints", s.handleEndpoints)
+
+	// scans endpoints (alias for jobs)
+	mux.HandleFunc("GET /api/v1/scans", s.handleListJobs)
+	mux.HandleFunc("POST /api/v1/scans", s.handleCreateJob)
+	mux.HandleFunc("POST /api/v1/scans/{id}/start", s.handleStartJob)
+	mux.HandleFunc("GET /api/v1/scans/{id}", s.handleGetJob)
+	mux.HandleFunc("DELETE /api/v1/scans/{id}", s.handleDeleteJob)
+	mux.HandleFunc("GET /api/v1/scans/{id}/status", s.handleStatus)
+	mux.HandleFunc("GET /api/v1/scans/{id}/events", s.handleEvents)
+	mux.HandleFunc("GET /api/v1/scans/{id}/reports", s.handleReports)
+	mux.HandleFunc("GET /api/v1/scans/{id}/endpoints", s.handleEndpoints)
+	mux.HandleFunc("POST /api/v1/scans/{id}/cancel", s.handleCancel)
+	mux.HandleFunc("POST /api/v1/scans/{id}/restart", s.handleRestart)
 }
 
 func (s *Server) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
@@ -160,8 +176,39 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+
+	var elapsedSeconds int64
+	if j.StartedAt != nil && !j.StartedAt.IsZero() {
+		end := time.Now()
+		if j.FinishedAt != nil && !j.FinishedAt.IsZero() {
+			end = *j.FinishedAt
+		}
+		elapsedSeconds = int64(end.Sub(*j.StartedAt).Seconds())
+	}
+
+	totalSteps := len(j.Steps)
+	var completedSteps int
+	for _, step := range j.Steps {
+		if step.Status == "SUCCEEDED" || step.Status == "FAILED" || step.Status == "SKIPPED" {
+			completedSteps++
+		}
+	}
+	progress := 0
+	if totalSteps > 0 {
+		progress = (completedSteps * 100) / totalSteps
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"jobId": j.JobID, "status": j.Status, "steps": j.Steps, "error": j.Error})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"jobId":           j.JobID,
+		"status":          j.Status,
+		"steps":          j.Steps,
+		"error":          j.Error,
+		"elapsedSeconds": elapsedSeconds,
+		"progress":       progress,
+		"completedSteps": completedSteps,
+		"totalSteps":     totalSteps,
+	})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -252,4 +299,59 @@ func (s *Server) handleReports(w http.ResponseWriter, r *http.Request) {
 	p := filepath.Join(root, "report.md")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"DAST-Report-%s.md\"", jobID))
 	http.ServeFile(w, r, p)
+}
+
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	j, err := storage.ReadJob(s.WorkDir, jobID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	j.Status = "CANCELLED"
+	_ = storage.WriteJob(s.WorkDir, j)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"jobId": jobID, "status": j.Status})
+}
+
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	j, err := storage.ReadJob(s.WorkDir, jobID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	initialStatus := j.Status
+	j.Status = "QUEUED"
+	for i := range j.Steps {
+		j.Steps[i].Status = ""
+		j.Steps[i].Error = ""
+	}
+	_ = storage.WriteJob(s.WorkDir, j)
+
+if err := runner.Execute(s.WorkDir, jobID, false); err != nil {
+		j.Status = initialStatus
+		_ = storage.WriteJob(s.WorkDir, j)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	j, _ = storage.ReadJob(s.WorkDir, jobID)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"jobId": jobID, "status": j.Status, "steps": j.Steps})
 }

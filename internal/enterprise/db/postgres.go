@@ -183,6 +183,19 @@ func UpdateScanStatus(ctx context.Context, pool *pgxpool.Pool, jobID, status str
 	return err
 }
 
+func GetScanByID(ctx context.Context, pool *pgxpool.Pool, id string) (*Scan, error) {
+	var s Scan
+	err := pool.QueryRow(ctx,
+		`SELECT id, user_id, job_id, target_url, status, config_hash, created_at, updated_at, finished_at 
+		 FROM scans WHERE id = $1`,
+		id,
+	).Scan(&s.ID, &s.UserID, &s.JobID, &s.TargetURL, &s.Status, &s.ConfigHash, &s.CreatedAt, &s.UpdatedAt, &s.FinishedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
 func GetScanByJobID(ctx context.Context, pool *pgxpool.Pool, jobID string) (*Scan, error) {
 	var s Scan
 	err := pool.QueryRow(ctx,
@@ -199,6 +212,28 @@ func GetScanByJobID(ctx context.Context, pool *pgxpool.Pool, jobID string) (*Sca
 func DeleteScan(ctx context.Context, pool *pgxpool.Pool, jobID string) error {
 	_, err := pool.Exec(ctx, "DELETE FROM scans WHERE job_id = $1", jobID)
 	return err
+}
+
+func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string) ([]Finding, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT id, scan_id, severity, name, description, evidence, created_at 
+		 FROM findings WHERE scan_id = $1 ORDER BY created_at DESC`,
+		scanID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var findings []Finding
+	for rows.Next() {
+		var f Finding
+		if err := rows.Scan(&f.ID, &f.ScanID, &f.Severity, &f.Name, &f.Description, &f.Evidence, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		findings = append(findings, f)
+	}
+	return findings, nil
 }
 
 func DeleteUserByLogin(ctx context.Context, pool *pgxpool.Pool, login string) error {

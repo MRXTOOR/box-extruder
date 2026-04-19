@@ -7,6 +7,13 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /dast-worker ./cmd/worker
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates curl docker-cli
+RUN apk add --no-cache ca-certificates curl wget jq bash
+
+RUN mkdir -p /workspace/work /zap/wrk /zap-home/.ZAP
+
+RUN apk add --no-cache unzip && \
+    wget -q -O /tmp/katana.zip https://github.com/projectdiscovery/katana/releases/download/v1.5.0/katana_1.5.0_linux_amd64.zip && \
+    unzip -q /tmp/katana.zip -d /tmp/ && mv /tmp/katana /usr/local/bin/katana && rm /tmp/katana.zip
+
 COPY --from=builder /dast-worker /usr/local/bin/
 CMD ["dast-worker"]

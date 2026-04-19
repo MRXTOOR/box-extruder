@@ -40,3 +40,6 @@ CREATE INDEX IF NOT EXISTS idx_scans_user_id ON scans(user_id);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
 CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_users_login ON users(login);
+
+-- Note: Default admin user is created via CLI on first run:
+-- go run ./cmd/cli/main.go user add --login=admin --password=admin --role=admin
