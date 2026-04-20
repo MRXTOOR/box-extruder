@@ -1,125 +1,283 @@
-# box-extruder
+# DAST Scanner - Dynamic Application Security Testing Platform
 
-Лёгкий DAST-оркестратор для web-целей (Katana + ZAP + Nuclei) с отчётами в JSON/Markdown/HTML(DOCX через pandoc).
+Автоматизированная платформа для динамического анализа безопасности веб-приложений.
+
+## Возможности
+
+- **Автодетект авторизации** - автоматическое определение формы входа и механизма аутентификации
+- **Сканирование уязвимостей** - Katana (краулинг), ZAP (паук + пассивный анализ), Nuclei (шаблонное сканирование)
+- **Множественные форматы отчётов** - Markdown, HTML, DOCX
+- **REST API** - полное управление сканами через API
+- **Веб-интерфейс** - удобный UI для запуска и просмотра результатов
+
+
+### Компоненты
+
+| Компонент | Описание | Порт |
+|-----------|----------|------|
+| **Nginx** | Фронтенд (React) | 80 |
+| **Server** | Go API сервер | 8080 |
+| **PostgreSQL** | База данных | 5432 |
+| **Redis** | Очередь задач и кэш | 6379 |
+| **Worker** | Исполнение сканов | - |
 
 ## Быстрый старт
 
-### Docker (рекомендуемый способ — работает на Windows/macOS/Linux)
+### Требования
 
-**Вариант 1: Docker-in-Docker (полная изоляция)**
+- Docker 20.10+
+- Docker Compose 2.0+
 
-```bash
-# Сборка и запуск
-make docker-build
-make docker-up
-
-# Или через docker compose напрямую:
-docker compose up -d
-```
-
-Откройте `http://localhost:8080` — Web UI готов к работе!
-
-**Вариант 2: Docker socket mount (легче, но требует доступ к host Docker)**
+### Запуск
 
 ```bash
-docker compose -f docker-compose.socket.yml up -d
-```
-
-**Остановка:**
-
-```bash
-make docker-down
-# или
-docker compose down
-```
-
-**Логи:**
-
-```bash
-make docker-logs
-# или
-docker logs -f dast-scanner
-```
-
-### Локальная разработка
-
-```bash
-go test ./...
-./scan run -f examples/scan-juice-shop.yaml -demo -work work
-```
-
-## Web UI (основной UX)
-
-```bash
-go build -o scan ./cmd/scan
-./scan serve -addr :8080 -work work
-```
-
-Откройте `http://localhost:8080`:
-- введите `Target URL`, `Login/Email`, `Password` (и опционально auth/verify URL),
-- UI вызовет `POST /api/v1/auth/discover`,
-- при успешном auto-discovery создаст и запустит job,
-- покажет live-статус и ссылки на отчёты.
-
-## Перенос на Windows
-
-1. **Установите Docker Desktop** для Windows с <https://www.docker.com/products/docker-desktop>
-
-2. **Склонируйте репозиторий:**
-
-```bash
-git clone <your-repo-url>
+# Клонировать репозиторий
+git clone <repo-url>
 cd box-extruder
+
+# Запустить полную систему
+docker compose -f docker-compose.full.yml up -d
+
+# Открыть веб-интерфейс
+http://localhost
 ```
 
-1. **Запустите:**
+### Учётные данные по умолчанию
+
+- **Login**: `admin`
+- **Password**: `admin`
+
+## Развёртывание в Production
+
+### Конфигурация
+
+1. Создайте `.env` файл:
 
 ```bash
-# В PowerShell или Git Bash:
-make docker-build
-make docker-up
+# PostgreSQL
+POSTGRES_USER=dast
+POSTGRES_PASSWORD=your_secure_password
+POSTGRES_DB=dast
 
-# Или напрямую:
-docker compose up -d
+# Redis
+REDIS_PASSWORD=your_redis_password
+
+# JWT
+JWT_SECRET=your_jwt_secret_min_32_chars
+
+# Опционально - изменить порты
+SERVER_PORT=8080
+NGINX_PORT=80
 ```
 
-1. **Откройте браузер:** <http://localhost:8080>
+2. Запустите:
 
-> **Важно:** DinD (Docker-in-Docker) требует `privileged: true`, что работает на Linux. На Windows/macOS используйте `docker-compose.socket.yml` или убедитесь что Docker Desktop поддерживает nested containers.
+```bash
+docker compose -f docker-compose.full.yml up -d --build
+```
 
-## Где смотреть результаты
+### Проверка статуса
 
-- Отчёты: `work/jobs/<job-id>/reports/`
-- Находки: `work/jobs/<job-id>/findings/`
-- Evidence: `work/jobs/<job-id>/evidence/`
-- Логи: `work/jobs/<job-id>/logs/orchestrator.log`
+```bash
+# Статус контейнеров
+docker compose -f docker-compose.full.yml ps
 
-## Аутентификация
+# Логи
+docker compose -f docker-compose.full.yml logs -f
+```
 
-Поддерживается цепочка провайдеров в `auth.providers`:
+## API
 
-- `header`
-- `cookieJar`
-- `juiceShopLogin`
-- `oidcClientCredentials`
-- `genericLogin` (универсальный login endpoint + verify)
+### Авторизация
 
-### Универсальный login без ручного Bearer
+```bash
+# Вход
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"login":"admin","password":"admin"}'
 
-Используйте `type: genericLogin` и задайте flow в `genericLogin`:
+# Ответ
+{"token":"eyJhbGci...","role":"admin","user":"admin"}
+```
 
-- `loginUrl`, `loginMethod`, `contentType` (`application/json` или `application/x-www-form-urlencoded`)
-- `credentialFields` (например `email -> email`, `password -> password`)
-- `tokenPath`/`tokenPaths` для извлечения токена из JSON
-- `verifyUrl`, `verifyMethod`, `verifyExpectedStatus`
+### Управление сканами
 
-Если задать `interactiveInputs`, CLI сам попросит значения в терминале при `scan run` (пароль можно скрыть через `sensitive: true`).
-Готовый пример: `examples/scan-generic-login.yaml`.
+```bash
+TOKEN="your_token"
 
-## Полезные env
+# Создать скан
+curl -X POST http://localhost:8080/api/v1/scans \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "targetUrl": "https://example.com",
+    "authUrl": "https://example.com/login",
+    "login": "user@example.com",
+    "password": "secret"
+  }'
 
-- `DAST_SQLI_PAYLOADS=0` — отключить SQLi payload-пробы
-- `DAST_XSS_PAYLOADS=0` — отключить XSS payload-пробы
-- `DAST_ZAP_ACTIVE_SCAN=0` — отключить active scan в ZAP Automation
-- `DAST_ZAP_ACTIVE_SCAN_MAX_MINUTES=10` — лимит active scan
+# Список сканов
+curl http://localhost:8080/api/v1/scans \
+  -H "Authorization: Bearer $TOKEN"
 
+# Статус скана
+curl http://localhost:8080/api/v1/scans/{scan_id}/status \
+  -H "Authorization: Bearer $TOKEN"
+
+# Удалить скан
+curl -X DELETE http://localhost:8080/api/v1/scans/{scan_id} \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Отчёты
+
+```bash
+# Markdown
+curl http://localhost:8080/api/v1/scans/{scan_id}/reports \
+  -H "Authorization: Bearer $TOKEN" \
+  -o report.md
+
+# HTML
+curl "http://localhost:8080/api/v1/scans/{scan_id}/reports?format=html" \
+  -H "Authorization: Bearer $TOKEN" \
+  -o report.html
+
+# DOCX
+curl "http://localhost:8080/api/v1/scans/{scan_id}/reports?format=docx" \
+  -H "Authorization: Bearer $TOKEN" \
+  -o report.docx
+
+# Эндпоинты (TXT)
+curl "http://localhost:8080/api/v1/scans/{scan_id}/reports?format=endpoints" \
+  -H "Authorization: Bearer $TOKEN" \
+  -o endpoints.txt
+```
+
+## Управление пользователями
+
+### Через CLI
+
+```bash
+# Подключиться к контейнеру
+docker exec -it dast-server sh
+
+# Создать пользователя
+dast-server user add --login=user --password=pass --role=specialist
+
+# Изменить пароль
+dast-server user password --login=user --password=newpass
+
+# Удалить пользователя
+dast-server user delete --login=user
+
+# Сделать админом
+dast-server user role --login=user --role=admin
+```
+
+### Через базу данных
+
+```bash
+# Подключиться к PostgreSQL
+docker exec -it dast-postgres psql -U dast -d dast
+
+# Добавить пользователя (пароль хешируется через bcrypt)
+INSERT INTO users (login, password_hash, role) VALUES (
+  'newuser',
+  '$2a$10$hashed_password_here',
+  'specialist'
+);
+
+# Список пользователей
+SELECT id, login, role FROM users;
+```
+
+## Конфигурация сканирования
+
+### Параметры сканирования
+
+```yaml
+version: "1.0"
+job:
+  name: "my-scan"
+
+targets:
+  - type: "web"
+    baseUrl: "https://example.com"
+    startPoints:
+      - "https://example.com/login"
+
+scope:
+  allow:
+    - ".*example\\.com.*"
+  deny:
+    - ".*logout.*"
+  maxUrls: 5000
+
+auth:
+  strategy: "providerChain"
+  providers:
+    - type: "genericLogin"
+      id: "login-form"
+      genericLogin:
+        loginURL: "https://example.com/login"
+        usernameField: "email"
+        passwordField: "password"
+        submitField: "button[type=submit]"
+        checkURL: "https://example.com/dashboard"
+        expectedStatus: 200
+
+scan:
+  plan:
+    - stepType: "katana"
+      enabled: true
+      katanaDepth: 3
+      katanaMaxUrls: 5000
+    - stepType: "zapBaseline"
+      enabled: true
+      zapAutomationFramework: true
+      zapMaxSpiderMinutes: 30
+      zapPassiveWaitSeconds: 120
+    - stepType: "nucleiTemplates"
+      enabled: true
+```
+
+## Устранение проблем
+
+### Логи
+
+```bash
+# Все сервисы
+docker compose -f docker-compose.full.yml logs
+
+# Конкретный сервис
+docker compose -f docker-compose.full.yml logs dast-server
+docker compose -f docker-compose.full.yml logs dast-worker
+```
+
+### Частые проблемы
+
+1. **ZAP занят порт 9090**
+   ```bash
+   # Проверить занятые порты
+   netstat -tlnp | grep 9090
+
+   # Остановить конфликтующий процесс
+   ```
+
+2. **PostgreSQL не подключается**
+   ```bash
+   # Проверить статус
+   docker compose -f docker-compose.full.yml logs postgres
+
+   # Проверить подключение
+   docker exec -it dast-postgres pg_isready
+   ```
+
+3. **Worker не выполняет задачи**
+   ```bash
+   # Проверить очередь Redis
+   docker exec -it dast-redis redis-cli LLEN dast:queue
+
+   # Проверить логи worker
+   docker compose -f docker-compose.full.yml logs dast-worker
+   ```

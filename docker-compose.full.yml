@@ -60,7 +60,6 @@ services:
       retries: 3
 
   dast-worker:
-    image: box-extruder/dast-worker:latest
     build:
       context: .
       dockerfile: Dockerfile.worker
@@ -83,13 +82,10 @@ services:
       - WORK_DIR=/workspace/work
       - DAST_ZAP_LOCAL=1
       - DAST_ZAP_PORT=9090
-      - DAST_ZAP_SH=/opt/ZAP/ZAP_D-2026-04-14/zap.sh
     volumes:
       - ./work:/workspace/work
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    entrypoint: ["/bin/sh","-c"]
-    command: ["apk add --no-cache libc6-compat bash wget wget libstdc++ openjdk21 && wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download/w2026-04-14/ZAP_WEEKLY_D-2026-04-14.zip && mkdir -p /opt/ZAP && unzip -q /tmp/zap.zip -d /opt/ZAP && ZAP_DIR=$(ls /opt/ZAP/ | head -1) && ln -sf /opt/ZAP/$ZAP_DIR/zap.sh /usr/local/bin/zap.sh && rm /tmp/zap.zip && dast-worker"]
 
   nginx:
     image: nginx:alpine
