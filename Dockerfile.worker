@@ -6,13 +6,26 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /dast-worker ./cmd/worker
 
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates curl wget jq bash openjdk21 unzip
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl wget jq bash unzip pandoc procps && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Java 21 from Adoptium
+RUN mkdir -p /opt/java && \
+    wget -q -O /tmp/jdk21.tar.gz https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_linux_hotspot_21.0.5_11.tar.gz && \
+    tar -xzf /tmp/jdk21.tar.gz -C /opt/java && \
+    rm /tmp/jdk21.tar.gz && \
+    mv /opt/java/jdk-21* /opt/java/jdk-21
+
+ENV JAVA_HOME=/opt/java/jdk-21
+ENV PATH=/usr/local/bin:/opt/java/jdk-21/bin:$PATH
 
 RUN mkdir -p /workspace/work /zap/wrk /zap-home/.ZAP
 
+# Tools installation
 RUN wget -q -O /tmp/katana.zip https://github.com/projectdiscovery/katana/releases/download/v1.5.0/katana_1.5.0_linux_amd64.zip && \
-    unzip -q /tmp/katana.zip -d /tmp/ && mv /tmp/katana /usr/local/bin/katana && rm /tmp/katana.zip
+    unzip -o -q /tmp/katana.zip -d /tmp/ && mv /tmp/katana /usr/local/bin/katana && rm /tmp/katana.zip
 
 RUN wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download/w2026-04-14/ZAP_WEEKLY_D-2026-04-14.zip && \
     mkdir -p /opt/ZAP && unzip -q /tmp/zap.zip -d /opt/ZAP && \
@@ -20,8 +33,9 @@ RUN wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download
     ln -sf /opt/ZAP/$ZAP_DIR/zap.sh /usr/local/bin/zap.sh && \
     rm /tmp/zap.zip
 
-ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk
-ENV PATH=$PATH:/usr/local/bin/katana
+RUN wget -q -O /tmp/nuclei.zip https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.zip && \
+    unzip -o -q /tmp/nuclei.zip -d /tmp/ && mv /tmp/nuclei /usr/local/bin/nuclei && rm /tmp/nuclei.zip
 
 COPY --from=builder /dast-worker /usr/local/bin/
+COPY templates/ /workspace/templates/
 CMD ["dast-worker"]

@@ -381,7 +381,6 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 		reportPath := filepath.Join(reportsDir, "report.docx")
 		data, err := os.ReadFile(reportPath)
 		if err != nil {
-			// Try HTML as fallback
 			htmlPath := filepath.Join(reportsDir, "report.html")
 			data, err = os.ReadFile(htmlPath)
 			if err != nil {
@@ -389,7 +388,7 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.html\"", jobID[:8]))
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.docx\"", jobID[:8]))
 			w.Write(data)
 			return
 		}
@@ -401,8 +400,12 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 		endpointsPath := filepath.Join(reportsDir, "endpoints.txt")
 		data, err := os.ReadFile(endpointsPath)
 		if err != nil {
-			http.Error(w, "endpoints not found", http.StatusNotFound)
-			return
+			if j, readErr := storage.ReadJob(h.workDir, jobID); readErr == nil && len(j.ScannedEndpoints) > 0 {
+				data = []byte(strings.Join(j.ScannedEndpoints, "\n"))
+			} else {
+				http.Error(w, "endpoints not found", http.StatusNotFound)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"endpoints-%s.txt\"", jobID[:8]))

@@ -84,6 +84,7 @@ services:
       - DAST_ZAP_PORT=9090
     volumes:
       - ./work:/workspace/work
+      - ./templates:/workspace/templates:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -1,0 +1,14 @@
+info:
+  name: example-banner
+  author: dast
+  severity: low
+  description: Example template
+requests:
+  - method: GET
+    path:
+      - /{{test}}
+    matchers:
+      - type: word
+        words:
+          - "404"
+

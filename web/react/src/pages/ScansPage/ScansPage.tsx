@@ -30,6 +30,8 @@ export function ScansPage() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [detectOpen, setDetectOpen] = useState(true)
   const [jobOpen, setJobOpen] = useState(true)
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false)
+  const [downloadTargetJobId, setDownloadTargetJobId] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -142,8 +144,18 @@ export function ScansPage() {
     loadScans()
   }
 
-  const handleDownload = (jobId: string) => {
-    window.open(`/api/v1/scans/${jobId}/reports`, '_blank')
+  const handleDownload = (jobId: string, format: string = 'md') => {
+    window.open(`/api/v1/scans/${jobId}/reports?format=${format}`, '_blank')
+  }
+
+  const openDownloadModal = (jobId: string) => {
+    setDownloadTargetJobId(jobId)
+    setDownloadModalOpen(true)
+  }
+
+  const closeDownloadModal = () => {
+    setDownloadModalOpen(false)
+    setDownloadTargetJobId(null)
   }
 
   const handleViewEndpoints = (jobId: string) => {
@@ -262,7 +274,7 @@ export function ScansPage() {
                     )}
                     <button 
                       className={styles.btnJobAction}
-                      onClick={(e) => { e.stopPropagation(); handleDownload(scan.jobId || scan.id) }}
+                      onClick={(e) => { e.stopPropagation(); openDownloadModal(scan.jobId || scan.id) }}
                       title="Скачать отчёт"
                     >
                       📥
@@ -288,6 +300,37 @@ export function ScansPage() {
           </div>
         </aside>
       </div>
+
+      {downloadModalOpen && (
+        <div className={styles.modalOverlay} onClick={closeDownloadModal}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Скачать отчёт</h3>
+              <button className={styles.btnClose} onClick={closeDownloadModal}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.downloadJobId}>#{downloadTargetJobId?.substring(0, 8)}</div>
+              <div className={styles.downloadFormats}>
+                <button className={styles.btnFormat} onClick={() => { handleDownload(downloadTargetJobId!, 'docx'); closeDownloadModal() }}>
+                  <span className={styles.formatIcon}>📝</span>
+                  <span className={styles.formatName}>Word (DOCX)</span>
+                  <span className={styles.formatDesc}>Документ Word</span>
+                </button>
+                <button className={styles.btnFormat} onClick={() => { handleDownload(downloadTargetJobId!, 'md'); closeDownloadModal() }}>
+                  <span className={styles.formatIcon}>📄</span>
+                  <span className={styles.formatName}>Markdown</span>
+                  <span className={styles.formatDesc}>.md файл</span>
+                </button>
+                <button className={styles.btnFormat} onClick={() => { handleDownload(downloadTargetJobId!, 'html'); closeDownloadModal() }}>
+                  <span className={styles.formatIcon}>🌐</span>
+                  <span className={styles.formatName}>HTML</span>
+                  <span className={styles.formatDesc}>Красивый веб-отчёт</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

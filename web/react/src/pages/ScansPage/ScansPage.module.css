@@ -406,3 +406,110 @@
     width: 100%;
   }
 }
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.modalContent {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  width: 400px;
+  max-width: 90vw;
+  cursor: default;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btnClose {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.btnClose:hover {
+  color: var(--text);
+}
+
+.modalBody {
+  padding: 1rem 1.25rem;
+}
+
+.downloadJobId {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--surface2);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.downloadFormats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 1rem;
+}
+
+.btnFormat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0.75rem 1rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btnFormat:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+
+.formatIcon {
+  font-size: 1.5rem;
+}
+
+.formatName {
+  font-weight: 500;
+  color: var(--text);
+  flex: 1;
+}
+
+.formatDesc {
+  font-size: 0.8rem;
+  color: var(--dim);
+}
