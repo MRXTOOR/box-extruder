@@ -63,34 +63,12 @@
     .shell {
       position: relative;
       z-index: 1;
+      max-width: 680px;
       margin: 0 auto;
       padding: 28px 20px 48px;
       display: flex;
-      gap: 24px;
-      max-width: 1200px;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .main-content {
-      flex: 1;
-      min-width: 0;
-      display: flex;
       flex-direction: column;
       gap: 20px;
-    }
-    .sidebar {
-      width: 570px;
-      flex-shrink: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      padding: 16px;
-      background: var(--surface);
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      height: fit-content;
-      max-height: calc(100vh - 80px);
-      overflow-y: auto;
     }
 
     .top {
@@ -164,14 +142,9 @@
     .pipeline .dot {
       width: 6px;
       height: 6px;
-      min-width: 6px;
-      min-height: 6px;
       border-radius: 50%;
       background: var(--accent);
       box-shadow: 0 0 10px var(--accent2);
-      flex-shrink: 0;
-      line-height: 0;
-      font-size: 0;
     }
 
     .pipeline .dot.g { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
@@ -185,10 +158,12 @@
 
     .card {
       background: var(--surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 22px 24px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+      padding: 1.25rem 1.35rem;
+      box-shadow: var(--shadow);
     }
 
     .card-head {
@@ -246,96 +221,6 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
-    }
-
-    .adv-settings {
-      margin: 16px 0;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      background: var(--surface2);
-    }
-
-    .adv-settings > summary {
-      padding: 10px 14px;
-      cursor: pointer;
-      font-size: 0.88rem;
-      color: var(--muted);
-      list-style: none;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .adv-settings > summary::before {
-      content: "▶";
-      font-size: 0.65rem;
-      transition: transform 0.2s;
-    }
-
-    .adv-settings[open] > summary::before {
-      transform: rotate(90deg);
-    }
-
-    .adv-settings-body {
-      padding: 12px 14px 4px;
-      border-top: 1px solid var(--border);
-    }
-
-    textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border);
-      background: rgba(13, 17, 23, 0.65);
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 0.88rem;
-      resize: vertical;
-      min-height: 60px;
-    }
-
-    textarea:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.18);
-    }
-
-    input[type="number"] {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border);
-      background: rgba(13, 17, 23, 0.65);
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 0.88rem;
-    }
-
-    input[type="number"]:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.18);
-    }
-
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
-      font-size: 0.85rem;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    .checkbox-label input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      accent-color: var(--accent);
-      cursor: pointer;
-    }
-
-    .checkbox-label span {
-      user-select: none;
     }
 
     @media (max-width: 520px) {
@@ -550,26 +435,6 @@
       flex-wrap: wrap;
       margin-bottom: 8px;
     }
-    .btn-toggle {
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--text);
-      cursor: pointer;
-      font-size: 1.1rem;
-      width: 28px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: transform 0.2s, background 0.15s;
-    }
-    .btn-toggle:hover {
-      background: var(--hover);
-    }
-    .btn-toggle.collapsed {
-      transform: rotate(-90deg);
-    }
 
     footer.foot {
       text-align: center;
@@ -694,330 +559,6 @@
       .pipeline-loader__beam { animation: none; opacity: 0.85; transform: translateX(40%); }
       .pipeline-loader__steps .pl-step { animation: none; }
     }
-
-    /* Modal styles */
-    .btn-endpoints {
-      background: rgba(56, 139, 253, 0.1);
-      border: 1px solid rgba(56, 139, 253, 0.22);
-      border-radius: 8px;
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.85rem;
-      padding: 0.5rem 1rem;
-      transition: background 0.15s, border-color 0.15s;
-      width: 100%;
-      margin-top: 0.5rem;
-    }
-    .btn-endpoints:hover {
-      background: rgba(56, 139, 253, 0.18);
-      border-color: rgba(56, 139, 253, 0.4);
-    }
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      backdrop-filter: blur(4px);
-      cursor: pointer;
-    }
-    .modal-overlay[hidden] {
-      display: none;
-    }
-    .modal-content {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-      max-width: 90vw;
-      max-height: 85vh;
-      width: 70vw;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      cursor: default;
-    }
-    .modal-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 1rem 1.25rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .modal-header h3 {
-      margin: 0;
-      font-size: 1.1rem;
-      font-weight: 600;
-    }
-    .btn-close {
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 1.5rem;
-      line-height: 1;
-      padding: 0 0.25rem;
-      width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-    }
-    .btn-close:hover {
-      color: var(--text);
-    }
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-bottom: 0.75rem;
-    }
-    .btn-copy {
-      background: rgba(56, 139, 253, 0.1);
-      border: 1px solid rgba(56, 139, 253, 0.22);
-      border-radius: 6px;
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.8rem;
-      padding: 0.35rem 0.75rem;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    .btn-copy:hover {
-      background: rgba(56, 139, 253, 0.18);
-      border-color: rgba(56, 139, 253, 0.4);
-    }
-    .modal-body {
-      padding: 1rem 1.25rem;
-      overflow-y: auto;
-      max-height: 70vh;
-    }
-    .modal-body .raw {
-      max-height: 65vh;
-      white-space: pre-wrap;
-      word-break: break-all;
-      font-size: 0.8rem;
-      line-height: 1.6;
-    }
-    .modal-sm {
-      width: 400px;
-      max-width: 90vw;
-    }
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
-      padding: 1rem 1.25rem;
-      border-top: 1px solid var(--border);
-    }
-    .btn-secondary {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.9rem;
-      padding: 0.5rem 1rem;
-      transition: background 0.15s;
-    }
-    .btn-secondary:hover {
-      background: var(--hover);
-    }
-    .btn-danger {
-      background: var(--bad-bg);
-      border: 1px solid var(--bad);
-      border-radius: 8px;
-      color: var(--bad);
-      cursor: pointer;
-      font-size: 0.9rem;
-      padding: 0.5rem 1rem;
-      transition: background 0.15s;
-    }
-    .btn-danger:hover {
-      background: rgba(248, 81, 73, 0.2);
-    }
-    .delete-warning {
-      color: var(--muted);
-      margin-bottom: 0.5rem;
-    }
-    .delete-job-id, .download-job-id {
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      background: var(--surface2);
-      padding: 0.5rem 0.75rem;
-      border-radius: 6px;
-      word-break: break-all;
-    }
-    .download-formats {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-top: 1rem;
-    }
-    .btn-format {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 0.75rem 1rem;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      cursor: pointer;
-      text-align: left;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    .btn-format:hover {
-      background: var(--hover);
-      border-color: var(--accent);
-    }
-    .format-icon {
-      font-size: 1.5rem;
-    }
-    .format-name {
-      font-weight: 500;
-      color: var(--text);
-      flex: 1;
-    }
-    .format-desc {
-      font-size: 0.8rem;
-      color: var(--dim);
-    }
-
-    /* Sidebar */
-    .sidebar-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding-bottom: 12px;
-      border-bottom: 1px solid var(--border);
-    }
-    .sidebar-title {
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--text);
-      margin: 0;
-    }
-    .btn-refresh {
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 1rem;
-      width: 28px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: color 0.15s, transform 0.3s;
-    }
-    .btn-refresh:hover {
-      color: var(--text);
-    }
-    .btn-refresh.loading {
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .jobs-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: calc(100vh - 200px);
-      overflow-y: auto;
-    }
-    .jobs-loading, .jobs-empty {
-      text-align: center;
-      color: var(--dim);
-      font-size: 0.9rem;
-      padding: 2rem 1rem;
-    }
-    .job-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      transition: border-color 0.15s;
-    }
-    .job-card:hover {
-      border-color: var(--accent);
-    }
-    .job-card-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
-    .job-card-id {
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      color: var(--dim);
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .job-status-badge {
-      font-size: 0.7rem;
-      font-weight: 500;
-      padding: 0.2rem 0.5rem;
-      border-radius: 10px;
-    }
-    .job-status-badge.succeeded { background: var(--ok-bg); color: var(--ok); }
-    .job-status-badge.failed { background: var(--bad-bg); color: var(--bad); }
-    .job-status-badge.partial { background: rgba(210, 153, 34, 0.14); color: var(--warn); }
-    .job-status-badge.running, .job-status-badge.queued { background: rgba(88, 166, 255, 0.1); color: var(--accent); }
-    .job-status-badge.waiting-for-auth { background: rgba(163, 113, 247, 0.15); color: #a371f7; }
-    .job-status-badge.pending, .job-status-badge.cancelled { background: rgba(110, 118, 129, 0.15); color: var(--dim); }
-    .job-card-target {
-      font-size: 0.85rem;
-      color: var(--text);
-      margin-bottom: 8px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .job-card-date {
-      font-size: 0.75rem;
-      color: var(--dim);
-      margin-bottom: 8px;
-    }
-    .job-card-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .btn-job-action {
-      flex: 1;
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 0.8rem;
-      padding: 0.4rem 0.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      transition: all 0.15s;
-    }
-    .btn-job-action:hover {
-      background: var(--hover);
-      color: var(--text);
-      border-color: var(--accent);
-    }
-    .btn-job-action.delete:hover {
-      border-color: var(--bad);
-      color: var(--bad);
-    }
-
-    @media (max-width: 900px) {
-      .shell { flex-direction: column; }
-      .sidebar { width: 100%; }
-    }
   </style>
 </head>
 <body>
@@ -1037,7 +578,6 @@
     </div>
   </div>
   <div class="shell">
-    <main class="main-content">
     <header class="top">
       <div class="brand">
         <div class="logo" aria-hidden="true">
@@ -1090,68 +630,26 @@
         <label for="verifyUrl">Verify URL <span style="color:var(--dim);font-weight:400">— опционально</span></label>
         <input id="verifyUrl" type="text" placeholder="/api/me или /profile" />
       </div>
-      <details class="adv-settings" id="advSettings">
-        <summary>Дополнительные настройки сканирования</summary>
-        <div class="adv-settings-body">
-          <div class="row2">
-            <div class="field">
-              <label for="katanaDepth">Глубина обхода (Katana/ZAP)</label>
-              <input id="katanaDepth" type="number" min="1" max="100" placeholder="10" />
-            </div>
-            <div class="field">
-              <label for="katanaMaxUrls">Макс. URL для Katana</label>
-              <input id="katanaMaxUrls" type="number" min="1" placeholder="5000" />
-            </div>
-          </div>
-          <div class="row2">
-            <div class="field">
-              <label for="zapSpiderMinutes">Время Spider (минуты)</label>
-              <input id="zapSpiderMinutes" type="number" min="1" placeholder="30" />
-            </div>
-            <div class="field">
-              <label for="zapPassiveSecs">Passive Wait (секунды)</label>
-              <input id="zapPassiveSecs" type="number" min="1" placeholder="120" />
-            </div>
-          </div>
-          <div class="field">
-            <label for="startPoints">Start Points <span style="color:var(--dim);font-weight:400">— дополнительные URL для
-                обхода (по одному на строку)</span></label>
-            <textarea id="startPoints" rows="3"
-              placeholder="https://example.com/about&#10;https://example.com/contact"></textarea>
-          </div>
-          <div class="field">
-            <label class="checkbox-label">
-              <input id="insecureSkipVerify" type="checkbox" />
-              <span>Пропускать проверку TLS-сертификатов (для самоподписанных)</span>
-            </label>
-          </div>
-        </div>
-      </details>
       <button type="button" class="btn-primary" id="startBtn">Автодетект и запуск скана</button>
     </section>
 
     <section class="card">
-      <div class="section-title-wrap">
-        <p class="card-head">Автодетект</p>
-        <button type="button" class="btn-toggle" id="toggleDetect" aria-label="Свернуть">−</button>
-        </div>
-        <div id="detectContent">
-        <div class="badge-row">
-          <span id="detectBadge" class="badge idle"><span class="icon">○</span> не запускался</span>
-        </div>
-        <details class="panel" id="tracePanel">
-          <summary>Полный trace (JSON)</summary>
-          <div class="panel-body">
-            <pre class="raw" id="traceFull">—</pre>
-          </div>
-        </details>
+      <p class="card-head">Автодетект</p>
+      <div class="badge-row">
+        <span id="detectBadge" class="badge idle"><span class="icon">○</span> не запускался</span>
       </div>
+      <details class="panel" id="tracePanel">
+        <summary>Полный trace (JSON)</summary>
+        <div class="panel-body">
+          <pre class="raw" id="traceFull">—</pre>
+        </div>
+      </details>
     </section>
 
     <section class="card">
       <div class="section-title-wrap">
         <h2 class="section-title">Задача</h2>
-        <button type="button" class="btn-toggle" id="toggleJob" aria-label="Свернуть">−</button>
+        <span id="jobStatusBar" class="job-status" title="Статус последней задачи">—</span>
       </div>
       <details class="panel" id="statusPanel" open>
         <summary>Статус и логи</summary>
@@ -1161,96 +659,25 @@
         </div>
       </details>
     </section>
-    </main>
-    
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h3 class="sidebar-title">История сканов</h3>
-        <button type="button" class="btn-refresh" id="refreshJobs" title="Обновить список">↻</button>
+
+    <section class="card" id="endpointsCard" hidden>
+      <div class="section-title-wrap">
+        <h2 class="section-title">Просканированные эндпоинты</h2>
+        <span id="endpointsCount" class="job-status" title="Количество просканированных эндпоинтов">0</span>
       </div>
-      <div id="jobsList" class="jobs-list">
-        <div class="jobs-loading">Загрузка...</div>
-      </div>
-    </aside>
-    </div>
-    
-    <!-- Endpoints Modal -->
-    <div class="modal-overlay" id="endpointsModal" hidden>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Просканированные эндпоинты</h3>
-          <button type="button" class="btn-close" id="closeEndpointsModal">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="modal-actions">
-            <span class="endpoints-job-id" id="endpointsJobId" style="font-family:var(--mono);font-size:0.8rem;color:var(--dim);flex:1;"></span>
-            <button type="button" class="btn-copy" id="downloadEndpointsBtn"
-              title="Скачать как TXT файл">Скачать TXT</button>
-          </div>
-          <p class="endpoints-info" id="endpointsInfo">Загрузка...</p>
+      <details class="panel" id="endpointsPanel" open>
+        <summary>Список эндпоинтов</summary>
+        <div class="panel-body">
           <pre class="raw" id="endpointsList">—</pre>
         </div>
-      </div>
-    </div>
-    
-    <!-- Delete Confirmation Modal -->
-    <div class="modal-overlay" id="deleteModal" hidden>
-      <div class="modal-content modal-sm">
-        <div class="modal-header">
-          <h3>Удалить скан?</h3>
-          <button type="button" class="btn-close" id="closeDeleteModal">&times;</button>
-        </div>
-        <div class="modal-body">
-          <p class="delete-warning">Это удалит все отчёты и данные скана:</p>
-          <p class="delete-job-id" id="deleteJobId"></p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-secondary" id="cancelDelete">Отмена</button>
-          <button type="button" class="btn-danger" id="confirmDelete">Удалить</button>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Download Modal -->
-    <div class="modal-overlay" id="downloadModal" hidden>
-      <div class="modal-content modal-sm">
-        <div class="modal-header">
-          <h3>Скачать отчёт</h3>
-          <button type="button" class="btn-close" id="closeDownloadModal">&times;</button>
-        </div>
-        <div class="modal-body">
-          <p class="download-job-id" id="downloadJobId"></p>
-          <div class="download-formats">
-            <button type="button" class="btn-format" data-format="docx">
-              <span class="format-icon">📝</span>
-              <span class="format-name">Word (DOCX)</span>
-              <span class="format-desc">Документ Word</span>
-            </button>
-            <button type="button" class="btn-format" data-format="md">
-              <span class="format-icon">📄</span>
-              <span class="format-name">Markdown</span>
-              <span class="format-desc">.md файл</span>
-            </button>
-            <button type="button" class="btn-format" data-format="html">
-              <span class="format-icon">🌐</span>
-              <span class="format-name">HTML</span>
-              <span class="format-desc">Красивый веб-отчёт</span>
-            </button>
-            <button type="button" class="btn-format" data-format="json">
-              <span class="format-icon">📋</span>
-              <span class="format-name">JSON</span>
-              <span class="format-desc">Структурированные данные</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      </details>
+    </section>
 
-  <footer class="foot">Локальный оркестратор · отчёты и события в отдельных вкладках</footer>
+    <footer class="foot">Локальный оркестратор · отчёты и события в отдельных вкладках</footer>
+  </div>
 
   <script>
     const qs = (id) => document.getElementById(id);
-
     const traceFull = qs("traceFull");
     const statusEl = qs("status");
     const linksEl = qs("links");
@@ -1259,239 +686,9 @@
     const jobStatusBar = qs("jobStatusBar");
     const pipelineLoader = qs("pipelineLoader");
     const pipelineLoaderHint = qs("pipelineLoaderHint");
-    const endpointsModal = qs("endpointsModal");
-    const endpointsInfo = qs("endpointsInfo");
-    const endpointsJobId = qs("endpointsJobId");
-    const endpointsList = qs("endpointsList");
-    const downloadEndpointsBtn = qs("downloadEndpointsBtn");
-    const closeEndpointsModal = qs("closeEndpointsModal");
-    let currentEndpointsJobId = null;
-
-    function openEndpointsModal(jobId) {
-      currentEndpointsJobId = jobId;
-      endpointsJobId.textContent = "#" + jobId.substring(0, 8);
-      endpointsInfo.textContent = "Загрузка...";
-      endpointsList.textContent = "—";
-      endpointsModal.removeAttribute("hidden");
-      fetchEndpoints(jobId);
-    }
-
-    function closeEndpointsModalFn() {
-      endpointsModal.setAttribute("hidden", "");
-      currentEndpointsJobId = null;
-    }
-
-    async function fetchEndpoints(jobId) {
-      try {
-        const resp = await fetch(`/api/v1/jobs/${jobId}/endpoints`);
-        if (resp.ok) {
-          const data = await resp.json();
-          const endpoints = data.endpoints || [];
-          endpointsInfo.textContent = `Найдено эндпоинтов: ${endpoints.length}`;
-          endpointsList.textContent = endpoints.join("\n");
-        } else {
-          endpointsInfo.textContent = "Эндпоинты не найдены";
-          endpointsList.textContent = "";
-        }
-      } catch (err) {
-        endpointsInfo.textContent = "Ошибка загрузки";
-        endpointsList.textContent = "";
-      }
-    }
-
-    if (closeEndpointsModal) {
-      closeEndpointsModal.addEventListener("click", closeEndpointsModalFn);
-    }
-    if (endpointsModal) {
-      endpointsModal.addEventListener("click", (e) => {
-        if (e.target === endpointsModal) closeEndpointsModalFn();
-      });
-    }
-    if (downloadEndpointsBtn) {
-      downloadEndpointsBtn.addEventListener("click", () => {
-        if (currentEndpointsJobId) {
-          window.open(`/api/v1/jobs/${currentEndpointsJobId}/endpoints`, "_blank");
-        }
-      });
-    }
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && endpointsModal && !endpointsModal.hasAttribute("hidden")) {
-        closeEndpointsModalFn();
-      }
-    });
-
-        // Jobs List Sidebar
-        const jobsList = qs("jobsList");
-        const refreshBtn = qs("refreshJobs");
-        let deleteTargetJobId = null;
-        let downloadTargetJobId = null;
-
-        async function loadJobs() {
-          if (refreshBtn) refreshBtn.classList.add("loading");
-          try {
-            const resp = await fetch("/api/v1/jobs");
-            const data = await resp.json();
-            const jobs = data.jobs || [];
-            if (jobs.length === 0) {
-              jobsList.innerHTML = '<div class="jobs-empty">Нет сохранённых сканов</div>';
-              return;
-            }
-            jobsList.innerHTML = jobs.map(job => {
-              const statusClass = job.status.toLowerCase().replace("_", "-");
-              const shortId = job.jobId.substring(0, 8);
-              const date = new Date(job.createdAt).toLocaleDateString("ru-RU", {
-                day: "2-digit", month: "2-digit", year: "2-digit"
-              });
-              const statusLabel = {
-                "SUCCEEDED": "✓ Завершён",
-                "FAILED": "✗ Ошибка",
-                "PARTIAL_SUCCESS": "⚠ Частично",
-                "RUNNING": "▶ Выполняется",
-                "QUEUED": "⏳ В очереди",
-                "WAITING_FOR_AUTH": "🔐 Ожидание авторизации",
-                "PENDING": "⏸ Приостановлен",
-                "CANCELLED": "🚫 Отменён"
-              }[job.status] || job.status;
-              return `
-            <div class="job-card" data-job-id="${job.jobId}">
-              <div class="job-card-header">
-                <span class="job-card-id">#${shortId}</span>
-                <span class="job-status-badge ${statusClass}">${statusLabel}</span>
-              </div>
-              <div class="job-card-target" title="${job.targetUrl || ""}">${job.targetUrl || "—"}</div>
-              <div class="job-card-date">${date}</div>
-              <div class="job-card-actions">
-                <button type="button" class="btn-job-action download" data-job-id="${job.jobId}" title="Скачать отчёт">📥 Отчёт</button>
-                <button type="button" class="btn-job-action endpoints" data-job-id="${job.jobId}" title="Скачать эндпоинты">📋 Эндпоинты</button>
-                <button type="button" class="btn-job-action delete" data-job-id="${job.jobId}" title="Удалить">🗑</button>
-              </div>
-            </div>
-          `;
-            }).join("");
-
-            // Attach event listeners
-            jobsList.querySelectorAll(".btn-job-action.download").forEach(btn => {
-              btn.addEventListener("click", (e) => {
-                downloadTargetJobId = e.currentTarget.dataset.jobId;
-                const job = jobs.find(j => j.jobId === downloadTargetJobId);
-                qs("downloadJobId").textContent = job ? job.targetUrl || job.jobId : downloadTargetJobId;
-                openDownloadModal();
-              });
-            });
-            jobsList.querySelectorAll(".btn-job-action.delete").forEach(btn => {
-              btn.addEventListener("click", (e) => {
-                deleteTargetJobId = e.currentTarget.dataset.jobId;
-                qs("deleteJobId").textContent = "#" + deleteTargetJobId.substring(0, 8);
-                openDeleteModal();
-              });
-            });
-            jobsList.querySelectorAll(".btn-job-action.endpoints").forEach(btn => {
-              btn.addEventListener("click", (e) => {
-                openEndpointsModal(e.currentTarget.dataset.jobId);
-              });
-            });
-          } catch (err) {
-            jobsList.innerHTML = '<div class="jobs-empty">Ошибка загрузки</div>';
-          } finally {
-            if (refreshBtn) refreshBtn.classList.remove("loading");
-          }
-        }
-
-        function openDeleteModal() {
-          if (qs("deleteModal")) qs("deleteModal").removeAttribute("hidden");
-        }
-        function closeDeleteModal() {
-          if (qs("deleteModal")) qs("deleteModal").setAttribute("hidden", "");
-          deleteTargetJobId = null;
-        }
-        function openDownloadModal() {
-          if (qs("downloadModal")) qs("downloadModal").removeAttribute("hidden");
-        }
-        function closeDownloadModal() {
-          if (qs("downloadModal")) qs("downloadModal").setAttribute("hidden", "");
-          downloadTargetJobId = null;
-        }
-
-        qs("closeDeleteModal")?.addEventListener("click", closeDeleteModal);
-        qs("cancelDelete")?.addEventListener("click", closeDeleteModal);
-        qs("confirmDelete")?.addEventListener("click", async () => {
-          if (!deleteTargetJobId) return;
-          try {
-            await fetch(`/api/v1/jobs/${deleteTargetJobId}`, { method: "DELETE" });
-            closeDeleteModal();
-            loadJobs();
-          } catch (err) {
-            alert("Ошибка удаления: " + err.message);
-          }
-        });
-
-        qs("closeDownloadModal")?.addEventListener("click", closeDownloadModal);
-        qs("downloadModal")?.addEventListener("click", (e) => {
-          if (e.target === qs("downloadModal")) closeDownloadModal();
-        });
-        qs("deleteModal")?.addEventListener("click", (e) => {
-          if (e.target === qs("deleteModal")) closeDeleteModal();
-        });
-
-        document.querySelectorAll(".btn-format").forEach(btn => {
-          btn.addEventListener("click", () => {
-            const format = btn.dataset.format;
-            if (downloadTargetJobId) {
-              window.open(`/api/v1/jobs/${downloadTargetJobId}/reports?format=${format}`, "_blank");
-              closeDownloadModal();
-            }
-          });
-        });
-
-        if (refreshBtn) {
-          refreshBtn.addEventListener("click", loadJobs);
-        }
-
-        document.addEventListener("keydown", (e) => {
-          if (e.key === "Escape") {
-            closeDeleteModal();
-            closeDownloadModal();
-          }
-        });
-
-        // Initial load
-        loadJobs();
-
-        const toggleDetectBtn = qs("toggleDetect");
-        const detectContent = qs("detectContent");
-        if (toggleDetectBtn && detectContent) {
-          toggleDetectBtn.addEventListener("click", () => {
-            const isHidden = detectContent.hasAttribute("hidden");
-            if (isHidden) {
-              detectContent.removeAttribute("hidden");
-              toggleDetectBtn.textContent = "−";
-              toggleDetectBtn.classList.remove("collapsed");
-            } else {
-              detectContent.setAttribute("hidden", "");
-              toggleDetectBtn.textContent = "+";
-              toggleDetectBtn.classList.add("collapsed");
-            }
-          });
-        }
-
-        const toggleJobBtn = qs("toggleJob");
-        const statusPanel = qs("statusPanel");
-        if (toggleJobBtn && statusPanel) {
-          toggleJobBtn.addEventListener("click", () => {
-            const isHidden = statusPanel.hasAttribute("hidden");
-            if (isHidden) {
-              statusPanel.removeAttribute("hidden");
-              statusPanel.setAttribute("open", "");
-              toggleJobBtn.textContent = "−";
-              toggleJobBtn.classList.remove("collapsed");
-            } else {
-              statusPanel.setAttribute("hidden", "");
-              statusPanel.removeAttribute("open");
-              toggleJobBtn.textContent = "+";
-              toggleJobBtn.classList.add("collapsed");
-            }
-          });
-        }
+          const endpointsCard = qs("endpointsCard");
+          const endpointsCount = qs("endpointsCount");
+          const endpointsList = qs("endpointsList");
 
     function setPipelineLoading(On, Hint) {
       if (!pipelineLoader) return;
@@ -1543,21 +740,11 @@
     }
 
     function buildScanConfig(targetUrl, discovered) {
-      const katanaDepth = parseInt(qs("katanaDepth").value) || 10;
-      const katanaMaxUrls = parseInt(qs("katanaMaxUrls").value) || 5000;
-      const zapSpiderMinutes = parseInt(qs("zapSpiderMinutes").value) || 30;
-      const zapPassiveSecs = parseInt(qs("zapPassiveSecs").value) || 120;
-      const startPointsRaw = qs("startPoints").value.trim();
-      const startPointsList = startPointsRaw ? startPointsRaw.split("\n").map(s => s.trim()).filter(s => s) : [targetUrl];
-
       return {
         version: "1.0",
         job: { name: "ui-auto-scan" },
-        targets: [{ type: "web", baseUrl: targetUrl, startPoints: startPointsList }],
-        budgets: {
-          discovery: { maxDepth: katanaDepth, maxUrls: katanaMaxUrls, durationCrawlSecs: zapSpiderMinutes * 60 }
-        },
-        scope: { allow: [`^${targetUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*`], deny: [], maxUrls: katanaMaxUrls },
+        targets: [{ type: "web", baseUrl: targetUrl, startPoints: [targetUrl] }],
+        scope: { allow: [`^${targetUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*`], deny: [], maxUrls: 200 },
         auth: {
           strategy: "providerChain",
           providers: [{
@@ -1572,8 +759,9 @@
         },
         scan: {
           plan: [
-            { stepType: "katana", enabled: true, katanaDepth: katanaDepth, katanaMaxUrls: katanaMaxUrls },
-            { stepType: "zapBaseline", enabled: true, zapAutomationFramework: true, zapSpiderTraditional: true, zapMaxSpiderMinutes: zapSpiderMinutes, zapPassiveWaitSeconds: zapPassiveSecs, zapSpiderMaxDepth: katanaDepth }
+            { stepType: "katana", enabled: true },
+            { stepType: "zapBaseline", enabled: true, zapAutomationFramework: true, zapSpiderTraditional: true },
+            { stepType: "nucleiTemplates", enabled: true, templatePaths: ["templates/example-banner.yaml"] }
           ]
         }
       };
@@ -1586,6 +774,18 @@
       if (st === "QUEUED" || st === "RUNNING") return "run";
       return "";
     }
+
+        function displayEndpoints(endpoints) {
+          if (!endpointsCard || !endpointsCount || !endpointsList) return;
+          if (!endpoints || endpoints.length === 0) {
+            endpointsCard.setAttribute("hidden", "");
+            return;
+          }
+          endpointsCard.removeAttribute("hidden");
+          endpointsCount.textContent = endpoints.length;
+          const formatted = endpoints.map((ep, i) => `${String(i + 1).padStart(3, ' ')}. ${ep}`).join("\n");
+          endpointsList.textContent = formatted;
+        }
 
     async function pollJob(jobId) {
       let done = false;
@@ -1600,6 +800,12 @@
         }
         if (["SUCCEEDED", "FAILED", "PARTIAL_SUCCESS", "WAITING_FOR_AUTH"].includes(st)) {
           done = true;
+          // Get full job details including scanned endpoints
+          const jobResp = await fetch(`/api/v1/jobs/${jobId}`);
+          const jobData = await jobResp.json();
+          if (jobData.scannedEndpoints && jobData.scannedEndpoints.length > 0) {
+            displayEndpoints(jobData.scannedEndpoints);
+          }
           linksEl.innerHTML = `
             <a href="/api/v1/jobs/${jobId}/reports" target="_blank" rel="noopener">Отчёт markdown</a>
             <a href="/api/v1/jobs/${jobId}/reports?format=docx" target="_blank" rel="noopener">Отчёт DOCX / HTML</a>
@@ -1627,8 +833,7 @@
         authUrl: qs("authUrl").value.trim(),
         verifyUrl: qs("verifyUrl").value.trim(),
         login: qs("login").value.trim(),
-        password: qs("password").value,
-        insecureSkipVerify: qs("insecureSkipVerify").checked
+        password: qs("password").value
       };
       try {
         const dResp = await fetch("/api/v1/auth/discover", {

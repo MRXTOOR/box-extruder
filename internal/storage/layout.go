@@ -172,6 +172,31 @@ func LoadFindingsJSON(workDir, jobID, filename string) ([]model.Finding, error) 
 	return out, nil
 }
 
+func WriteEndpointsTxt(workDir, jobID string, endpoints []string) error {
+	root := JobRoot(workDir, jobID)
+	if err := mkdirAll(filepath.Join(root, "reports")); err != nil {
+		return err
+	}
+	data := []byte(strings.Join(endpoints, "\n"))
+	return os.WriteFile(filepath.Join(root, "reports", "endpoints.txt"), data, 0o644)
+}
+
+func LoadEndpointsTxt(workDir, jobID string) ([]string, error) {
+	p := filepath.Join(JobRoot(workDir, jobID), "reports", "endpoints.txt")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out, nil
+}
+
 // evidenceFileJSON — payload как RawMessage, чтобы при загрузке не терять структуру.
 type evidenceFileJSON struct {
 	EvidenceID string          `json:"evidenceId"`

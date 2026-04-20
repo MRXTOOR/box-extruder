@@ -12,10 +12,10 @@ import (
 
 func RenderDocxOptional(jobName, baseURL string, started, finished time.Time, findings []model.Finding, scannedEndpoints []string, outputPath string) error {
 	htmlPath := filepath.Join(filepath.Dir(outputPath), "report.html")
-	return writeHTMLReport(jobName, baseURL, started, finished, findings, scannedEndpoints, htmlPath)
+	return WriteHTMLReport(jobName, baseURL, started, finished, findings, nil, htmlPath)
 }
 
-func writeHTMLReport(jobName, baseURL string, started, finished time.Time, findings []model.Finding, scannedEndpoints []string, htmlPath string) error {
+func WriteHTMLReport(jobName, baseURL string, started, finished time.Time, findings []model.Finding, scannedEndpoints []string, htmlPath string) error {
 	var html strings.Builder
 
 	html.WriteString(`<!DOCTYPE html>

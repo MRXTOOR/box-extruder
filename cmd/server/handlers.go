@@ -208,6 +208,19 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	findings, _ := db.GetFindingsByScanID(r.Context(), h.pool, scan.ID)
+	if len(findings) == 0 {
+		if fileFindings, err := storage.LoadFindingsJSON(h.workDir, scan.JobID, "findings-final.json"); err == nil {
+			for _, f := range fileFindings {
+				findings = append(findings, db.Finding{
+					ID:          uuid.New().String(),
+					ScanID:      scan.ID,
+					Name:        f.Title,
+					Severity:    string(f.Severity),
+					Description: f.Description,
+				})
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -384,6 +397,17 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.docx\"", jobID[:8]))
 		w.Write(data)
 		return
+	case "endpoints":
+		endpointsPath := filepath.Join(reportsDir, "endpoints.txt")
+		data, err := os.ReadFile(endpointsPath)
+		if err != nil {
+			http.Error(w, "endpoints not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"endpoints-%s.txt\"", jobID[:8]))
+		w.Write(data)
+		return
 	default:
 		reportPath := filepath.Join(reportsDir, "report.md")
 		data, err := os.ReadFile(reportPath)
@@ -420,6 +444,13 @@ func (h *Handler) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(lines) == 0 {
+		// Try to load from endpoints.txt
+		endpoints, err := storage.LoadEndpointsTxt(h.workDir, jobID)
+		if err == nil && len(endpoints) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[" + strings.Join(endpoints, "\n") + "]"))
+			return
+		}
 		http.Error(w, "endpoints not found", http.StatusNotFound)
 		return
 	}

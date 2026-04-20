@@ -2,7 +2,6 @@ package discovery
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,12 +14,11 @@ import (
 )
 
 type Request struct {
-	TargetURL          string `json:"targetUrl"`
-	AuthURL            string `json:"authUrl,omitempty"`
-	VerifyURL          string `json:"verifyUrl,omitempty"`
-	Login              string `json:"login"`
-	Password           string `json:"password"`
-	InsecureSkipVerify bool   `json:"insecureSkipVerify,omitempty"`
+	TargetURL string `json:"targetUrl"`
+	AuthURL   string `json:"authUrl,omitempty"`
+	VerifyURL string `json:"verifyUrl,omitempty"`
+	Login     string `json:"login"`
+	Password  string `json:"password"`
 }
 
 type TraceStep struct {
@@ -32,22 +30,17 @@ type TraceStep struct {
 }
 
 type Result struct {
-	Verified          bool                          `json:"verified"`
-	VerifyStatus      int                           `json:"verifyStatus,omitempty"`
-	VerifyURL         string                        `json:"verifyUrl,omitempty"`
-	GenericLogin      *config.GenericLoginConfig    `json:"genericLogin,omitempty"`
+	Verified         bool                     `json:"verified"`
+	VerifyStatus     int                      `json:"verifyStatus,omitempty"`
+	VerifyURL        string                   `json:"verifyUrl,omitempty"`
+	GenericLogin     *config.GenericLoginConfig `json:"genericLogin,omitempty"`
 	InteractiveInputs []config.AuthInteractiveInput `json:"interactiveInputs,omitempty"`
-	Trace             []TraceStep                   `json:"trace"`
-	Error             string                        `json:"error,omitempty"`
+	Trace            []TraceStep              `json:"trace"`
+	Error            string                   `json:"error,omitempty"`
 }
 
 func Discover(req Request) Result {
 	client := &http.Client{Timeout: 15 * time.Second}
-	if req.InsecureSkipVerify {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-	}
 	out := Result{
 		InteractiveInputs: []config.AuthInteractiveInput{
 			{Name: "username", Prompt: "Username / Email", Required: true},
@@ -82,10 +75,10 @@ func Discover(req Request) Result {
 					for _, vURL := range verifyURLs {
 						status, verr := tryVerify(client, vURL, authHeader, cookieHeader)
 						step := TraceStep{
-							Stage:   "verify",
-							URL:     vURL,
-							Method:  http.MethodGet,
-							Detail:  fmt.Sprintf("status=%d", status),
+							Stage:  "verify",
+							URL:    vURL,
+							Method: http.MethodGet,
+							Detail: fmt.Sprintf("status=%d", status),
 							Success: verr == nil && status == http.StatusOK,
 						}
 						if verr != nil {

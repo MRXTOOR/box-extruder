@@ -49,8 +49,8 @@ auth:
     - type: "juiceShopLogin"
       id: "juice-session"
       secretsRef:
-        email: "admin@juice-sh.op"
-        password: "admin123"
+        email: "asdasd@gma32232323iul.com"
+        password: "asdasd@gma32232323iul.com"
 
 scan:
   preset: "Fast"

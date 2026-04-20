@@ -8,17 +8,27 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/box-extruder/dast/internal/model"
+	"github.com/box-extruder/dast/internal/noise"
 )
 
 func escapeMarkdownCell(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	s = strings.ReplaceAll(s, "\n", " ")
 	return s
+}
+
+// reviewMarkdownCell — ячейка ручного review; пусто → «—», чтобы таблица не выглядела как «сломанная».
+func reviewMarkdownCell(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "—"
+	}
+	return escapeMarkdownCell(s)
 }
 
 func formatEvidenceMarkdown(ev model.Evidence) string {
@@ -223,22 +233,20 @@ func formatGenericJSONPayload(ev model.Evidence) string {
 
 // RenderMarkdown builds report.md content from job and findings (final).
 // evidenceThreshold — budgets.verification.evidenceThreshold для колонки «Evidence quality»; пусто = low.
-// reportUpdatedAt — если не nil, в шапку добавляется строка о времени последнего обновления отчёта.
+// reportUpdatedAt — если не nil, в шапку добавляется строка о времени последнего обновления отчёта (например после ручного review).
 // scannedEndpoints — список просканированных эндпоинтов (из katana/zap).
 func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time, findings []model.Finding, evidence map[string]model.Evidence, includeEvidence bool, evidenceThreshold string, reportUpdatedAt *time.Time, scannedEndpoints []string) []byte {
 	var b bytes.Buffer
-
-	fmt.Fprintf(&b, "# DAST Security Report\n\n")
-	fmt.Fprintf(&b, "| | |\n")
-	fmt.Fprintf(&b, "|---|---|\n")
-	fmt.Fprintf(&b, "| **Сканирование** | %s |\n", jobName)
-	fmt.Fprintf(&b, "| **Цель** | %s |\n", baseURL)
-	fmt.Fprintf(&b, "| **Начало** | %s |\n", started.UTC().Format("02.01.2006 15:04:05 MST"))
-	fmt.Fprintf(&b, "| **Завершение** | %s |\n", finished.UTC().Format("02.01.2006 15:04:05 MST"))
-	fmt.Fprintf(&b, "\n---\n\n")
-
-	fmt.Fprintf(&b, "## Executive Summary\n\n")
-
+	fmt.Fprintf(&b, "# DAST Report\n\n")
+	fmt.Fprintf(&b, "- **Job**: %s\n", jobName)
+	fmt.Fprintf(&b, "- **Target**: %s\n", baseURL)
+	fmt.Fprintf(&b, "- **Preset**: %s\n", preset)
+	fmt.Fprintf(&b, "- **Started**: %s\n", started.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "- **Finished**: %s\n", finished.UTC().Format(time.RFC3339))
+	if reportUpdatedAt != nil {
+		fmt.Fprintf(&b, "- **Report last updated**: %s\n", reportUpdatedAt.UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintf(&b, "\n## Executive summary\n\n")
 	var confirmed, unconf, suppressed int
 	bySev := map[model.Severity]int{}
 	for _, f := range findings {
@@ -252,103 +260,163 @@ func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time
 			suppressed++
 		}
 	}
-
-	fmt.Fprintf(&b, "| Статус | Количество |\n")
-	fmt.Fprintf(&b, "|--------|-----------|\n")
-	fmt.Fprintf(&b, "| Подтвержденные | %d |\n", confirmed)
-	fmt.Fprintf(&b, "| Обнаруженные | %d |\n", unconf)
-	fmt.Fprintf(&b, "| Подавленные | %d |\n", suppressed)
-	fmt.Fprintf(&b, "\n")
-
-	fmt.Fprintf(&b, "### Raspredelenie po severity\n\n")
-	fmt.Fprintf(&b, "| Uroven | Kol-vo | Opisanie |\n")
-	fmt.Fprintf(&b, "|---------|--------|----------|\n")
-	fmt.Fprintf(&b, "| CRITICAL | %d | Kriticheskaya uyazvimost |\n", bySev[model.SeverityCritical])
-	fmt.Fprintf(&b, "| HIGH | %d | Vysokaya seryoznost |\n", bySev[model.SeverityHigh])
-	fmt.Fprintf(&b, "| MEDIUM | %d | Srednyaya seryoznost |\n", bySev[model.SeverityMedium])
-	fmt.Fprintf(&b, "| LOW | %d | Nizkaya seryoznost |\n", bySev[model.SeverityLow])
-	fmt.Fprintf(&b, "| INFO | %d | Informaciya |\n", bySev[model.SeverityInfo])
-	fmt.Fprintf(&b, "\n")
-
-	fmt.Fprintf(&b, "## Findings\n\n")
-
-	severities := []struct {
-		sev   model.Severity
-		title string
-	}{
-		{model.SeverityCritical, "CRITICAL"},
-		{model.SeverityHigh, "HIGH"},
-		{model.SeverityMedium, "MEDIUM"},
-		{model.SeverityLow, "LOW"},
-		{model.SeverityInfo, "INFO"},
-	}
-
-	for _, sev := range severities {
-		var sevFindings []model.Finding
-		for _, f := range findings {
-			if f.Severity == sev.sev {
-				sevFindings = append(sevFindings, f)
-			}
-		}
-		if len(sevFindings) == 0 {
-			continue
-		}
-
-		fmt.Fprintf(&b, "### %s (%d)\n\n", sev.title, len(sevFindings))
-		fmt.Fprintf(&b, "| # | Rule | Status | Location | Title |\n")
-		fmt.Fprintf(&b, "|---|------|--------|---------|-------|\n")
-		for i, f := range sevFindings {
-			title := escapeMarkdownCell(f.Title)
-			location := escapeMarkdownCell(f.LocationKey)
-			status := statusLabel(f.LifecycleStatus)
-			fmt.Fprintf(&b, "| %d | `%s` | %s | `%s` | %s |\n", i+1, f.RuleID, status, location, title)
+	fmt.Fprintf(&b, "- Confirmed: %d\n- Unconfirmed / detected: %d\n- Suppressed: %d\n\n", confirmed, unconf, suppressed)
+	if len(scannedEndpoints) > 0 {
+		fmt.Fprintf(&b, "\n## Scanned Endpoints\n\n")
+		fmt.Fprintf(&b, "Всего просканировано эндпоинтов: **%d**\n\n", len(scannedEndpoints))
+		fmt.Fprintf(&b, "| # | Endpoint |\n")
+		fmt.Fprintf(&b, "|---|----------|\n")
+		for i, ep := range scannedEndpoints {
+			fmt.Fprintf(&b, "| %d | `%s` |\n", i+1, escapeMarkdownCell(ep))
 		}
 		fmt.Fprintf(&b, "\n")
 	}
-
-	if includeEvidence && len(findings) > 0 {
-		fmt.Fprintf(&b, "---\n\n## Evidence\n\n")
-		for _, sev := range severities {
-			var printedSevHeader bool
-			for _, f := range findings {
-				if f.Severity != sev.sev {
+	fmt.Fprintf(&b, "### By severity\n\n")
+	fmt.Fprintf(&b, "Уровни **CRITICAL** и **HIGH** соответствуют наиболее опасным находкам. Ниже всегда приведены все уровни; **0** означает, что находок этого уровня нет.\n\n")
+	for _, s := range []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo} {
+		fmt.Fprintf(&b, "- **%s**: %d\n", s, bySev[s])
+	}
+	th := strings.TrimSpace(evidenceThreshold)
+	if th == "" {
+		th = "low"
+	}
+	if len(findings) > 0 {
+		fmt.Fprintf(&b, "\n## Evidence summary\n\n")
+		fmt.Fprintf(&b, "HTTP evidence quality vs threshold **%s**: **sufficient** — порог выполнен; **partial** — есть HTTP, но не дотягивает до порога; **non-http** — только не-HTTP артефакты; **none** — нет ссылок на evidence.\n\n", th)
+		fmt.Fprintf(&b, "| Finding ID | Rule | Severity | Status | Evidence refs | Quality |\n")
+		fmt.Fprintf(&b, "|------------|------|----------|--------|---------------|--------|\n")
+		for _, f := range findings {
+			rule := escapeMarkdownCell(f.RuleID)
+			q := noise.FindingEvidenceQualityLabel(f, evidence, th)
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %d | %s |\n", f.FindingID, rule, f.Severity, f.LifecycleStatus, len(f.EvidenceRefs), q)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+	fmt.Fprintf(&b, "## Findings\n\n")
+	fmt.Fprintf(&b, "Колонки **Reviewer**, **Reviewed at** и **Review note** заполняются только после ручного review находки (поля `reviewedBy` / `reviewedAt` / `reviewNote` в модели finding); при чисто автоматическом скане там остаётся «—».\n\n")
+	fmt.Fprintf(&b, "| Severity | Status | Rule | Location | Title | Reviewer | Reviewed at | Review note |\n")
+	fmt.Fprintf(&b, "|----------|--------|------|----------|-------|----------|-------------|-------------|\n")
+	for _, f := range findings {
+		title := escapeMarkdownCell(f.Title)
+		reviewer := reviewMarkdownCell(f.ReviewedBy)
+		note := reviewMarkdownCell(f.ReviewNote)
+		reviewedAt := "—"
+		if f.ReviewedAt != nil {
+			reviewedAt = f.ReviewedAt.UTC().Format(time.RFC3339)
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n", f.Severity, f.LifecycleStatus, f.RuleID, f.LocationKey, title, reviewer, reviewedAt, note)
+	}
+	if includeEvidence {
+		fmt.Fprintf(&b, "\n## Evidence\n\n")
+		for _, f := range sortedFindingsBySeverity(findings) {
+			var printedHeader bool
+			for _, eid := range f.EvidenceRefs {
+				ev, ok := evidence[eid]
+				if !ok {
 					continue
 				}
-				for _, eid := range f.EvidenceRefs {
-					ev, ok := evidence[eid]
-					if !ok {
-						continue
-					}
-					if ev.Type == model.EvidenceManualReview {
-						continue
-					}
-					if !printedSevHeader {
-						fmt.Fprintf(&b, "### %s\n\n", sev.title)
-						printedSevHeader = true
-					}
-					title := escapeMarkdownCell(f.Title)
-					fmt.Fprintf(&b, "#### %s — `%s`\n\n", title, f.RuleID)
-					b.WriteString(formatEvidenceMarkdown(ev))
-					b.WriteString("\n")
+				if ev.Type == model.EvidenceManualReview {
+					continue
 				}
+				if !printedHeader {
+					title := escapeMarkdownCell(f.Title)
+					fmt.Fprintf(&b, "### Finding `%s` — %s — %s — %s\n\n", f.FindingID, f.Severity, f.LifecycleStatus, title)
+					printedHeader = true
+				}
+				fmt.Fprintf(&b, "#### Evidence `%s` (%s)\n\n", eid, ev.Type)
+				b.WriteString(formatEvidenceMarkdown(ev))
+				b.WriteString("\n")
 			}
 		}
 	}
-
+	if hasManualReviewEvidence(findings, evidence) {
+		fmt.Fprintf(&b, "\n## Audit trail (manual review)\n\n")
+		for _, f := range findings {
+			for _, eid := range f.EvidenceRefs {
+				ev, ok := evidence[eid]
+				if !ok || ev.Type != model.EvidenceManualReview {
+					continue
+				}
+				fmt.Fprintf(&b, "### Finding %s — evidence `%s`\n\n", f.FindingID, eid)
+				b.WriteString(formatManualReviewEvidence(ev))
+				b.WriteString("\n")
+			}
+		}
+	}
 	return b.Bytes()
 }
 
-func statusLabel(status model.LifecycleStatus) string {
-	switch status {
-	case model.LifecycleConfirmed:
-		return "Confirmed"
-	case model.LifecycleFalsePositiveSuppressed:
-		return "Suppressed"
-	case model.LifecycleRecheckRequired:
-		return "Recheck Required"
-	default:
-		return "Detected"
+func hasManualReviewEvidence(findings []model.Finding, evidence map[string]model.Evidence) bool {
+	for _, f := range findings {
+		for _, eid := range f.EvidenceRefs {
+			if ev, ok := evidence[eid]; ok && ev.Type == model.EvidenceManualReview {
+				return true
+			}
+		}
 	}
+	return false
+}
+
+func reportSeverityRank(s model.Severity) int {
+	switch s {
+	case model.SeverityCritical:
+		return 5
+	case model.SeverityHigh:
+		return 4
+	case model.SeverityMedium:
+		return 3
+	case model.SeverityLow:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func sortedFindingsBySeverity(findings []model.Finding) []model.Finding {
+	out := slices.Clone(findings)
+	sort.Slice(out, func(i, j int) bool {
+		ri := reportSeverityRank(out[i].Severity)
+		rj := reportSeverityRank(out[j].Severity)
+		if ri != rj {
+			return ri > rj
+		}
+		return out[i].LocationKey < out[j].LocationKey
+	})
+	return out
+}
+
+func formatManualReviewEvidence(ev model.Evidence) string {
+	var b strings.Builder
+	switch p := ev.Payload.(type) {
+	case map[string]any:
+		if v, ok := p["action"]; ok {
+			fmt.Fprintf(&b, "- **action**: %v\n", v)
+		}
+		if v, ok := p["actor"]; ok {
+			fmt.Fprintf(&b, "- **actor**: %v\n", v)
+		}
+		if v, ok := p["note"]; ok && fmt.Sprintf("%v", v) != "" {
+			fmt.Fprintf(&b, "- **note**: %v\n", v)
+		}
+		if v, ok := p["previousLifecycle"]; ok && fmt.Sprintf("%v", v) != "" {
+			fmt.Fprintf(&b, "- **previous lifecycle**: %v\n", v)
+		}
+	case model.ManualReviewPayload:
+		fmt.Fprintf(&b, "- **action**: %s\n", p.Action)
+		fmt.Fprintf(&b, "- **actor**: %s\n", p.Actor)
+		if p.Note != "" {
+			fmt.Fprintf(&b, "- **note**: %s\n", p.Note)
+		}
+		if p.PreviousLifecycle != "" {
+			fmt.Fprintf(&b, "- **previous lifecycle**: %s\n", p.PreviousLifecycle)
+		}
+	default:
+		fmt.Fprintf(&b, "- **payload**: %v\n", ev.Payload)
+	}
+	if ev.ContextID != "" {
+		fmt.Fprintf(&b, "- **contextId**: %s\n", ev.ContextID)
+	}
+	return b.String()
 }
 
 // PandocToDocx runs pandoc if available; returns error if pandoc missing.

@@ -34,13 +34,11 @@ func UseAutomation(step config.ScanStep) bool {
 
 // RunAutomation runs ZAP via `zap.sh -cmd -autorun` (Docker или локальный ZAP).
 // allow — regex из scope.allow; при пустом списке добавляется baseURL.*
-// startPoints — дополнительные URL для контекста ZAP spider
 // authHeaders — заголовки для всех запросов (Authorization, Cookie и т.д.); попадают в automation как job replacer.
 // sqlPayloadPath / xssPayloadPath — sqli.txt и xss.txt для ZAP requestor до spider.
 func RunAutomation(
 	targetURL, outDir, dockerImage, configFileDir string,
 	allow []string,
-	startPoints []string,
 	step config.ScanStep,
 	authHeaders map[string]string,
 	sqlPayloadPath, xssPayloadPath string,
@@ -76,17 +74,8 @@ func RunAutomation(
 		var zt string
 		var za []string
 		zt, za, zapDockerExtra = remapLocalhostForZAPDocker(targetURL, allow)
-		zs := make([]string, 0, len(startPoints))
-		for _, sp := range startPoints {
-			sp = strings.TrimSpace(sp)
-			if sp == "" || sp == targetURL {
-				continue
-			}
-			tsp, _, _ := remapLocalhostForZAPDocker(sp, nil)
-			zs = append(zs, tsp)
-		}
 		probes := BuildMergedPayloadProbes(zt, authHeaders, sqlPayloadPath, xssPayloadPath)
-		yamlBytes, err = buildAutomationYAML(zt, za, zs, step, reportDir, authHeaders, probes)
+		yamlBytes, err = buildAutomationYAML(zt, za, step, reportDir, authHeaders, probes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -134,7 +123,7 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 		}
 		// Поля по документации ZAP: https://www.zaproxy.org/docs/desktop/addons/replacer/automation/
 		rules = append(rules, map[string]any{
-			"description":       "DAST auth header " + name,
+			"description":         "DAST auth header " + name,
 			"matchType":         "req_header",
 			"matchRegex":        false,
 			"matchString":       name,
@@ -153,27 +142,18 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 	}
 }
 
-func buildAutomationYAML(targetURL string, allow []string, startPoints []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any) ([]byte, error) {
+func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any) ([]byte, error) {
 	maxSpider := step.ZAPMaxSpiderMinutes
 	if maxSpider <= 0 {
-		maxSpider = 30
+		maxSpider = 5
 	}
 	passiveSec := step.ZAPPassiveWaitSeconds
 	if passiveSec <= 0 {
-		passiveSec = 120
+		passiveSec = 60
 	}
 	passiveMin := (passiveSec + 59) / 60
 	if passiveMin < 1 {
 		passiveMin = 1
-	}
-
-	spiderMaxDepth := step.ZAPSpiderMaxDepth
-	if spiderMaxDepth <= 0 {
-		spiderMaxDepth = 20
-	}
-	spiderMaxChildren := step.ZAPSpiderMaxChildren
-	if spiderMaxChildren <= 0 {
-		spiderMaxChildren = 0
 	}
 
 	include := make([]string, 0, len(allow)+1)
@@ -185,14 +165,6 @@ func buildAutomationYAML(targetURL string, allow []string, startPoints []string,
 	}
 	if len(include) == 0 {
 		include = append(include, strings.TrimSuffix(targetURL, "/")+"/.*")
-	}
-
-	contextURLs := []string{targetURL}
-	for _, sp := range startPoints {
-		sp = strings.TrimSpace(sp)
-		if sp != "" && sp != targetURL {
-			contextURLs = append(contextURLs, sp)
-		}
 	}
 
 	useTrad := step.ZAPSpiderTraditional || !step.ZAPSpiderAjax
@@ -220,8 +192,6 @@ func buildAutomationYAML(targetURL string, allow []string, startPoints []string,
 				"context":     dastContextName,
 				"url":         targetURL,
 				"maxDuration": maxSpider,
-				"maxDepth":    spiderMaxDepth,
-				"maxChildren": spiderMaxChildren,
 			},
 		})
 	}
@@ -235,13 +205,12 @@ func buildAutomationYAML(targetURL string, allow []string, startPoints []string,
 		jobs = append(jobs, map[string]any{
 			"type": "spiderAjax",
 			"parameters": map[string]any{
-				"context":         dastContextName,
-				"url":             targetURL,
-				"maxDuration":     maxSpider,
-				"maxCrawlDepth":   spiderMaxDepth,
-				"browserId":       browser,
+				"context":       dastContextName,
+				"url":           targetURL,
+				"maxDuration":   maxSpider,
+				"browserId":     browser,
 				"runOnlyIfModern": false,
-				"inScopeOnly":     true,
+				"inScopeOnly":   true,
 			},
 		})
 		jobs = append(jobs, map[string]any{
@@ -270,7 +239,7 @@ func buildAutomationYAML(targetURL string, allow []string, startPoints []string,
 	jobs = append(jobs, map[string]any{
 		"type": "report",
 		"parameters": map[string]any{
-			"template":      "traditional-json",
+			"template":    "traditional-json",
 			"reportDir":     reportDir,
 			"reportFile":    reportFileName,
 			"reportTitle":   "DAST orchestrator",
@@ -283,14 +252,14 @@ func buildAutomationYAML(targetURL string, allow []string, startPoints []string,
 			"contexts": []any{
 				map[string]any{
 					"name":         dastContextName,
-					"urls":         contextURLs,
+					"urls":         []string{targetURL},
 					"includePaths": include,
 				},
 			},
 			"parameters": map[string]any{
-				"failOnError":      false,
-				"failOnWarning":    false,
-				"progressToStdout": true,
+				"failOnError":        false,
+				"failOnWarning":      false,
+				"progressToStdout":   true,
 			},
 		},
 		"jobs": jobs,

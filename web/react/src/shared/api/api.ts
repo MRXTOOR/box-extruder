@@ -91,7 +91,7 @@ export const api = {
     }
   },
 
-  async getScanEndpoints(jobId: string): Promise<{ endpoints: string[] }> {
+  async getScanEndpoints(jobId: string): Promise<import('../../entities/Scan/model/types').ContextInfo[]> {
     const res = await fetch(`${BASE_URL}/scans/${jobId}/endpoints`, { headers: headers() })
     return handleJsonResponse(res)
   },

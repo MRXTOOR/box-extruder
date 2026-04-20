@@ -30,9 +30,9 @@ type Options struct {
 	WorkDir       string
 	ConfigYAML    []byte
 	Config        *config.ScanAsCode
-	SkipZAPDocker bool
-	SkipNucleiCLI bool
-	SkipKatanaCLI bool
+	SkipZAPDocker   bool
+	SkipNucleiCLI   bool
+	SkipKatanaCLI   bool
 	// JobID if set reuses workspace (Execute path); empty creates new id in Run.
 	JobID string
 	// ConfigFileDir is the directory of the scan-as-code file (for resolving relative templatePaths).
@@ -98,15 +98,15 @@ func ExecuteWithProgress(workDir, jobID string, skipZAP bool, on ProgressSink) e
 	skipNuclei := os.Getenv("DAST_SKIP_NUCLEI_CLI") == "1"
 	skipKatana := os.Getenv("DAST_SKIP_KATANA_CLI") == "1"
 	_, err = runPipeline(Options{
-		WorkDir:       workDir,
-		ConfigYAML:    data,
-		Config:        cfg,
-		SkipZAPDocker: skipZAP,
-		SkipNucleiCLI: skipNuclei,
-		SkipKatanaCLI: skipKatana,
-		JobID:         jobID,
-		ConfigFileDir: cfgDir,
-		OnProgress:    on,
+		WorkDir:        workDir,
+		ConfigYAML:     data,
+		Config:         cfg,
+		SkipZAPDocker:  skipZAP,
+		SkipNucleiCLI:  skipNuclei,
+		SkipKatanaCLI:  skipKatana,
+		JobID:          jobID,
+		ConfigFileDir:  cfgDir,
+		OnProgress:     on,
 	})
 	return err
 }
@@ -286,14 +286,9 @@ func runPipeline(opt Options) (string, error) {
 				emit(opt, jobID, "info", "Katana CLI: skipped (-skip-katana or DAST_SKIP_KATANA_CLI=1)")
 				break
 			}
-seeds := katanaSeedURLs(cfg)
-	if len(cfg.Targets) > 0 {
-		base := cfg.Targets[0].BaseURL
-		if strings.HasPrefix(base, "http://localhost") || strings.HasPrefix(base, "http://127.0.0.1") {
-			base = strings.Replace(base, "localhost", "host.docker.internal", 1)
-			base = strings.Replace(base, "127.0.0.1", "host.docker.internal", 1)
-		}
-		cfg.Targets[0].BaseURL = base
+			seeds := katanaSeedURLs(cfg)
+			if len(cfg.Targets) > 0 {
+				base := cfg.Targets[0].BaseURL
 				if payloads.SQLiEnabled() {
 					sp := payloads.SQLiPath(jobRoot)
 					if _, err := os.Stat(sp); err == nil {
@@ -392,7 +387,7 @@ seeds := katanaSeedURLs(cfg)
 			}
 			if zapworker.UseAutomation(stepCfg) {
 				emit(opt, jobID, "info", "ZAP: Automation Framework (spider / Ajax spider if enabled)")
-				zf, ze, zerr = zapworker.RunAutomation(base, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir, cfg.Scope.Allow, startPoints(cfg), stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath)
+				zf, ze, zerr = zapworker.RunAutomation(base, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir, cfg.Scope.Allow, stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath)
 			} else {
 				emit(opt, jobID, "info", "ZAP: baseline script (docker)")
 				zf, ze, zerr = zapworker.RunBaseline(base, zapDir, stepCfg.ZAPDockerImage, authHeaders)
@@ -600,9 +595,17 @@ seeds := katanaSeedURLs(cfg)
 	if err := storage.WriteReportMD(opt.WorkDir, jobID, md); err != nil {
 		return "", err
 	}
+	mdPath := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "reports", "report.md")
 	docxPath := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "reports", "report.docx")
-	_ = report.RenderDocxOptional(cfg.Job.Name, baseURL, now, time.Now().UTC(), final, scannedEndpoints, docxPath)
-	emit(opt, jobID, "info", "Reports saved: report.md, report.html")
+	htmlPath := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "reports", "report.html")
+	ref := ""
+	if cfg.Outputs.Docx != nil {
+		ref = report.ResolveReferenceDoc(cfg.Outputs.Docx.TemplateRef, opt.WorkDir)
+	}
+	_ = report.PandocToDocxOptional(mdPath, docxPath, ref)
+	_ = report.WriteHTMLReport(cfg.Job.Name, baseURL, now, time.Now().UTC(), final, scannedEndpoints, htmlPath)
+	_ = storage.WriteEndpointsTxt(opt.WorkDir, jobID, scannedEndpoints)
+	emit(opt, jobID, "info", "Markdown saved; DOCX if pandoc in PATH, else reports/report.html for Word/LibreOffice")
 
 	partial := false
 	for _, st := range job.Steps {
@@ -624,6 +627,7 @@ seeds := katanaSeedURLs(cfg)
 	_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "info", "msg": "job finished", "status": string(job.Status)})
 	return jobID, nil
 }
+
 
 func finishJob(workDir string, job *model.Job) {
 	t := time.Now().UTC()
@@ -739,7 +743,7 @@ func dummyBundle(ctxID string) ([]model.Finding, []model.Evidence) {
 			ContextID:  ctxID,
 			Payload: model.HTTPRequestResponsePayload{
 				Method:     "GET",
-				URL:        "https://example.invalid/robots.txt",
+				URL:      "https://example.invalid/robots.txt",
 				StatusCode: 200,
 			},
 		},
@@ -794,24 +798,6 @@ func katanaSeedURLs(cfg *config.ScanAsCode) []string {
 	return out
 }
 
-func startPoints(cfg *config.ScanAsCode) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, t := range cfg.Targets {
-		for _, sp := range t.StartPoints {
-			sp = strings.TrimSpace(sp)
-			if sp == "" {
-				continue
-			}
-			if _, ok := seen[sp]; !ok {
-				seen[sp] = struct{}{}
-				out = append(out, sp)
-			}
-		}
-	}
-	return out
-}
-
 func katanaOptsFromStep(cfg *config.ScanAsCode, step config.ScanStep, seeds, headers []string) katana.CLIOptions {
 	o := katana.CLIOptions{
 		Targets:   seeds,
@@ -824,15 +810,6 @@ func katanaOptsFromStep(cfg *config.ScanAsCode, step config.ScanStep, seeds, hea
 		o.Depth = step.KatanaDepth
 	} else if cfg.Budgets.Discovery.MaxDepth > 0 {
 		o.Depth = cfg.Budgets.Discovery.MaxDepth
-	} else {
-		o.Depth = 10
-	}
-	if step.KatanaMaxURLs > 0 {
-		o.MaxURLs = step.KatanaMaxURLs
-	} else if cfg.Budgets.Discovery.MaxURLs > 0 {
-		o.MaxURLs = cfg.Budgets.Discovery.MaxURLs
-	} else {
-		o.MaxURLs = 5000
 	}
 	if step.KatanaConcurrency > 0 {
 		o.Concurrency = step.KatanaConcurrency
@@ -993,9 +970,10 @@ func isAttackPayloadURL(rawURL string) bool {
 		"<iframe", "%3ciframe",
 		"expression(alert",
 	}
-	// Специфичные SQLi payload-паттерны (включая URL-encoded)
+	// Специфичные SQLi payload-паттерны
 	sqliPatterns := []string{
-		"' or ", "' and ", "' union ", "' insert ", "' drop ",
+		"' or 1=1", "' and 1=1", "' union select", "' union all select",
+		"' insert into", "' drop table", "' truncate ",
 		" or 1=1", " and 1=1", " or '1'='1", " and '1'='1",
 		"sleep(", "benchmark(", "waitfor delay", "waitfor time",
 		"xp_cmdshell", "xp_dirtree", "xp_fileexist",
@@ -1003,9 +981,6 @@ func isAttackPayloadURL(rawURL string) bool {
 		"information_schema", "sysobjects", "syscolumns",
 		"@@version", "@@servername",
 		"convert(int", "cast(",
-		"insert into", "delete from", "update ", "drop table",
-		"; insert ", "; delete ", "; update ", "; drop ",
-		"exec(", "execute(", "execxp_",
 	}
 	// Проверяем оба варианта
 	for _, q := range []string{rawQ, decodedQ} {

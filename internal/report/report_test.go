@@ -10,66 +10,85 @@ import (
 	"github.com/box-extruder/dast/internal/model"
 )
 
-func TestRenderMarkdown_includesFindingsBySeverity(t *testing.T) {
+func TestRenderMarkdown_includesEvidenceByDefault(t *testing.T) {
+	evID := "ev-1"
 	findings := []model.Finding{
 		{
 			FindingID:       "f1",
-			RuleID:          "sql-injection",
-			Severity:        model.SeverityCritical,
-			LifecycleStatus: model.LifecycleDetected,
-			Title:           "SQL Injection",
-			LocationKey:     "https://x.test/api/users?id=1",
-		},
-		{
-			FindingID:       "f2",
-			RuleID:          "xss",
+			RuleID:          "r1",
 			Severity:        model.SeverityHigh,
-			LifecycleStatus: model.LifecycleConfirmed,
-			Title:           "Cross-Site Scripting",
-			LocationKey:     "https://x.test/search?q=test",
+			LifecycleStatus: model.LifecycleDetected,
+			Title:           "XSS",
+			EvidenceRefs:    []string{evID},
 		},
 	}
-	out := RenderMarkdown("Test Scan", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, nil, false, "low", nil, nil)
+	evidence := map[string]model.Evidence{
+		evID: {
+			EvidenceID: evID,
+			Type:       model.EvidenceHTTPRequestResponse,
+			Payload: map[string]any{
+				"method":              "GET",
+				"url":                 "https://x.test/a",
+				"statusCode":          float64(200),
+				"responseBodySnippet": "<script>",
+			},
+		},
+	}
+	out := RenderMarkdown("j", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, evidence, true, "low", nil, nil)
 	s := string(out)
-	if !strings.Contains(s, "DAST Security Report") {
-		t.Fatal("missing header")
+	if !containsAll(s, []string{"## Evidence", "GET", "https://x.test/a", "<script>"}) {
+		t.Fatalf("report missing evidence: %s", s)
 	}
-	if !strings.Contains(s, "CRITICAL") {
-		t.Fatal("missing CRITICAL severity")
+	if strings.Contains(s, "## Evidence (confirmed)") {
+		t.Fatal("old section title")
 	}
-	if !strings.Contains(s, "HIGH") {
-		t.Fatal("missing HIGH severity")
-	}
-	if !strings.Contains(s, "SQL Injection") {
-		t.Fatal("missing finding title")
+	if !strings.Contains(s, "## Evidence summary") {
+		t.Fatal("missing evidence summary")
 	}
 }
 
-func TestRenderMarkdown_scannedEndpoints(t *testing.T) {
-	endpoints := []string{
-		"https://x.test/",
-		"https://x.test/about",
-		"https://x.test/contact",
+func TestRenderMarkdown_evidenceSummaryQuality(t *testing.T) {
+	evID := "e1"
+	findings := []model.Finding{{
+		FindingID: "f1", RuleID: "r", Severity: model.SeverityInfo,
+		LifecycleStatus: model.LifecycleDetected, EvidenceRefs: []string{evID},
+	}}
+	evidence := map[string]model.Evidence{
+		evID: {Type: model.EvidenceHTTPRequestResponse, Payload: model.HTTPRequestResponsePayload{
+			Method: "GET", URL: "http://u/",
+		}},
 	}
-	findings := []model.Finding{}
-	out := RenderMarkdown("Test", "https://x.test", "Fast", time.Time{}, time.Time{}, findings, nil, false, "low", nil, endpoints)
-	s := string(out)
-	if !strings.Contains(s, "DAST Security Report") {
-		t.Fatal("missing header")
-	}
-	if !strings.Contains(s, "https://x.test") {
-		t.Fatal("missing base URL")
+	out := string(RenderMarkdown("j", "", "", time.Time{}, time.Time{}, findings, evidence, false, "high", nil, nil))
+	if !strings.Contains(out, "partial") || !strings.Contains(out, "Evidence summary") {
+		t.Fatal(out)
 	}
 }
 
-func TestRenderMarkdown_noFindings(t *testing.T) {
-	out := RenderMarkdown("Clean Scan", "https://x.test", "Fast", time.Time{}, time.Time{}, nil, nil, false, "low", nil, nil)
-	s := string(out)
-	if !strings.Contains(s, "DAST Security Report") {
-		t.Fatal("missing header")
+func TestRenderMarkdown_httpTypedPayload(t *testing.T) {
+	evID := "e2"
+	findings := []model.Finding{
+		{
+			FindingID:       "f1",
+			EvidenceRefs:    []string{evID},
+			LifecycleStatus: model.LifecycleConfirmed,
+			Title:           "t",
+		},
 	}
-	if !strings.Contains(s, "0") {
-		t.Fatal("should show zero findings")
+	evidence := map[string]model.Evidence{
+		evID: {
+			EvidenceID: evID,
+			Type:       model.EvidenceHTTPRequestResponse,
+			Payload: model.HTTPRequestResponsePayload{
+				Method:              "POST",
+				URL:                 "https://a/b",
+				StatusCode:          500,
+				ResponseBodySnippet: "err",
+			},
+		},
+	}
+	out := string(RenderMarkdown("", "", "", time.Time{}, time.Time{}, findings, evidence, true, "low", nil, nil))
+	if !containsAll(out, []string{"POST", "https://a/b", "500", "err"}) {
+		t.Fatal(out)
 	}
 }
 

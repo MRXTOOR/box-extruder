@@ -216,7 +216,7 @@ func DeleteScan(ctx context.Context, pool *pgxpool.Pool, jobID string) error {
 
 func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string) ([]Finding, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, scan_id, severity, name, description, evidence, created_at 
+		`SELECT id, scan_id, severity, name, description, evidence, created_at
 		 FROM findings WHERE scan_id = $1 ORDER BY created_at DESC`,
 		scanID,
 	)
@@ -234,6 +234,14 @@ func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string)
 		findings = append(findings, f)
 	}
 	return findings, nil
+}
+
+func InsertFinding(ctx context.Context, pool *pgxpool.Pool, scanID, severity, name, description string, evidence map[string]any) error {
+	_, err := pool.Exec(ctx,
+		`INSERT INTO findings (scan_id, severity, name, description, evidence) VALUES ($1, $2, $3, $4, $5)`,
+		scanID, severity, name, description, evidence,
+	)
+	return err
 }
 
 func DeleteUserByLogin(ctx context.Context, pool *pgxpool.Pool, login string) error {

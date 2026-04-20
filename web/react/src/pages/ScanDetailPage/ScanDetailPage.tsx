@@ -28,6 +28,9 @@ export function ScanDetailPage() {
   const [findings, setFindings] = useState<Finding[]>([])
   const [loading, setLoading] = useState(true)
   const [canceling, setCanceling] = useState(false)
+  const [endpointsModalOpen, setEndpointsModalOpen] = useState(false)
+  const [endpointsList, setEndpointsList] = useState<string[]>([])
+  const [endpointsLoading, setEndpointsLoading] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -66,6 +69,31 @@ export function ScanDetailPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const openEndpointsModal = async (jobId: string) => {
+    setEndpointsModalOpen(true)
+    setEndpointsLoading(true)
+    try {
+      const res = await fetch(`/api/v1/scans/${jobId}/reports?format=endpoints`)
+      if (res.ok) {
+        const text = await res.text()
+        const eps = text.split('\n').filter((line: string) => line.trim() !== '')
+        setEndpointsList(eps)
+      } else {
+        setEndpointsList([])
+      }
+    } catch (err) {
+      console.error(err)
+      setEndpointsList([])
+    } finally {
+      setEndpointsLoading(false)
+    }
+  }
+
+  const closeEndpointsModal = () => {
+    setEndpointsModalOpen(false)
+    setEndpointsList([])
   }
 
   const handleCancel = async () => {
@@ -153,8 +181,21 @@ export function ScanDetailPage() {
         )}
         
         <div className={styles.links}>
-          <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports`} target="_blank" rel="noopener">Отчёт markdown</a>
-          <a href={`/api/v1/scans/${scan.jobId || scan.id}/endpoints`} target="_blank" rel="noopener">Эндпоинты</a>
+          <div className={styles.dropdown}>
+            <button className={styles.btnReport}>📥 Скачать отчёт ▾</button>
+            <div className={styles.dropdownMenu}>
+              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=md`} target="_blank" rel="noopener">Markdown (MD)</a>
+              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=html`} target="_blank" rel="noopener">HTML</a>
+              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=docx`} target="_blank" rel="noopener">Word (DOCX)</a>
+            </div>
+          </div>
+          <div className={styles.dropdown}>
+            <button className={styles.btnEndpoints}>📋 Эндпоинты ▾</button>
+            <div className={styles.dropdownMenu}>
+              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=endpoints`} target="_blank" rel="noopener"> TXT</a>
+              <button className={styles.btnViewEndpoints} onClick={() => openEndpointsModal(scan.jobId || scan.id)}>Просмотр</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -182,6 +223,26 @@ export function ScanDetailPage() {
           )}
         </div>
       </section>
+
+      {endpointsModalOpen && (
+        <div className={styles.modalOverlay} onClick={closeEndpointsModal}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Просканированные эндпоинты</h3>
+              <button className={styles.btnClose} onClick={closeEndpointsModal}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              {endpointsLoading ? (
+                <p>Загрузка...</p>
+              ) : endpointsList.length > 0 ? (
+                <pre className={styles.endpointsList}>{endpointsList.join('\n')}</pre>
+              ) : (
+                <p>Эндпоинты не найдены</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

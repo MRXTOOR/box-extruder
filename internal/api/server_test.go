@@ -8,7 +8,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/box-extruder/dast/internal/model"
+	"github.com/box-extruder/dast/internal/storage"
 )
 
 func TestCreateAndStart_skipZap(t *testing.T) {
@@ -52,6 +57,61 @@ func TestCreateAndStart_skipZap(t *testing.T) {
 	_ = resp3.Body.Close()
 	if st["status"] != "SUCCEEDED" && st["status"] != "PARTIAL_SUCCESS" {
 		t.Fatalf("status: %v", st["status"])
+	}
+}
+
+func TestPatchReviewFinding(t *testing.T) {
+	dir := t.TempDir()
+	jobID := "job-patch-review"
+	yamlBytes, err := os.ReadFile(filepath.Join("..", "runner", "testdata", "minimal-scan.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.InitJobDirs(dir, jobID); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.WriteConfigSnapshot(dir, jobID, yamlBytes, storage.ConfigHashSHA256(yamlBytes)); err != nil {
+		t.Fatal(err)
+	}
+	j := &model.Job{JobID: jobID, CreatedAt: time.Now().UTC(), Status: model.JobSucceeded, ConfigHash: "x"}
+	if err := storage.WriteJob(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	fid := "finding-1"
+	now := time.Now().UTC()
+	findings := []model.Finding{{
+		FindingID: fid, RuleID: "r", Category: "c", Severity: model.SeverityHigh, Confidence: 0.5,
+		LocationKey: "x", LifecycleStatus: model.LifecycleUnconfirmed,
+		FirstSeenAt: now, LastSeenAt: now, Title: "t",
+	}}
+	if err := storage.WriteFindingsJSON(dir, jobID, "findings-final.json", findings); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewServer(dir).Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	body := `{"action":"confirm","note":"via api","actor":"api"}`
+	req, err := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/jobs/"+jobID+"/findings/"+fid, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("patch: %d %s", resp.StatusCode, b)
+	}
+	after, err := storage.LoadFindingsJSON(dir, jobID, "findings-final.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 1 || after[0].LifecycleStatus != model.LifecycleConfirmed {
+		t.Fatalf("finding: %+v", after[0])
 	}
 }
 

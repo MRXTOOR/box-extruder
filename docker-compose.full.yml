@@ -96,7 +96,7 @@ services:
     container_name: dast-nginx
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./web/react/dist:/usr/share/nginx/html:ro
+      - ./web/react/dist:/usr/share/nginx/html:rw
     ports:
       - "80:80"
     depends_on:

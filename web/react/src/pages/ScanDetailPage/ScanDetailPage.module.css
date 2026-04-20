@@ -262,14 +262,18 @@
 .links {
   margin-top: 1rem;
   display: flex;
-  flex-direction: column;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-.links a {
+.dropdown {
+  position: relative;
+}
+
+.btnReport {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 10px 14px;
   border-radius: var(--radius-sm);
   font-size: 0.85rem;
@@ -278,18 +282,144 @@
   text-decoration: none;
   background: rgba(56, 139, 253, 0.1);
   border: 1px solid rgba(56, 139, 253, 0.22);
+  cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
-.links a:hover {
+.btnReport:hover {
   background: rgba(56, 139, 253, 0.18);
-  border-color: rgba(56, 139, 253, 0.4);
 }
 
-.links a::before {
-  content: "↗";
-  font-size: 0.75rem;
-  opacity: 0.7;
+.dropdownMenu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-width: 160px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dropdown:hover .dropdownMenu {
+  display: block;
+}
+
+.dropdownMenu a {
+  display: block;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.dropdownMenu a:hover {
+  background: var(--hover);
+}
+
+.btnEndpoints {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  background: rgba(56, 139, 253, 0.1);
+  border: 1px solid rgba(56, 139, 253, 0.22);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btnEndpoints:hover {
+  background: rgba(56, 139, 253, 0.18);
+}
+
+.btnViewEndpoints {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.btnViewEndpoints:hover {
+  background: var(--hover);
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modalContent {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btnClose {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.btnClose:hover {
+  color: var(--text);
+}
+
+.modalBody {
+  padding: 20px;
+  overflow: auto;
+}
+
+.endpointsList {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  max-height: 400px;
+  overflow: auto;
 }
 
 .panel {

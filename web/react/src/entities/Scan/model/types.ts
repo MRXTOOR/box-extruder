@@ -69,3 +69,12 @@ export interface ScanStatusResponse {
   totalSteps?: number
   steps?: StepInfo[]
 }
+
+export interface ContextInfo {
+  contextId: string
+  targetBaseUrls?: string[]
+  scopeAllow?: string[]
+  scopeDeny?: string[]
+  authVerification?: string
+  createdAt?: string
+}
