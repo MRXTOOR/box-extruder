@@ -30,7 +30,9 @@ services:
       retries: 5
 
   dast-server:
-    image: qeez4/dast-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.server
     container_name: dast-server
     depends_on:
       postgres:
@@ -58,7 +60,9 @@ services:
       retries: 3
 
   dast-worker:
-    image: qeez4/dast-worker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     container_name: dast-worker
     user: "0:0"
     depends_on:
@@ -85,7 +89,9 @@ services:
       - "host.docker.internal:host-gateway"
 
   nginx:
-    image: qeez4/dast-frontend:latest
+    build:
+      context: ./web/react
+      dockerfile: Dockerfile
     container_name: dast-nginx
     ports:
       - "80:80"
