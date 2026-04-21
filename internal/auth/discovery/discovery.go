@@ -119,7 +119,6 @@ func Discover(req Request) Result {
 	return out
 }
 
-// dedupeTrace убирает повторяющиеся шаги (одинаковый stage+url+method+detail).
 func dedupeTrace(steps []TraceStep) []TraceStep {
 	seen := make(map[string]struct{})
 	out := make([]TraceStep, 0, len(steps))

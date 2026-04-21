@@ -31,7 +31,6 @@ type HTTPBlock struct {
 	Method   string          `yaml:"method"`
 	Path     string          `yaml:"path"`
 	Matchers []Matcher       `yaml:"matchers"`
-	// PayloadQueryParam + PayloadFile: для каждой непустой строки файла — запрос path?param=строка (SQLi-пробы).
 	PayloadQueryParam string `yaml:"payloadQueryParam,omitempty"`
 	PayloadFile       string `yaml:"payloadFile,omitempty"`
 }
@@ -94,8 +93,6 @@ func loadFile(path string) ([]Template, error) {
 	return []Template{t}, nil
 }
 
-// Run executes templates against base URLs with optional headers.
-// workDir — корень job для разрешения относительного payloadFile (artifacts/payloads/sqli.txt).
 func Run(client *http.Client, bases []string, tpls []Template, ctxID string, dedupe config.DedupeConfig, workDir string) ([]model.Finding, []model.Evidence, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 25 * time.Second}

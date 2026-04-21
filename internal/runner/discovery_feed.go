@@ -12,7 +12,6 @@ import (
 	"github.com/box-extruder/dast/internal/storage"
 )
 
-// harvestHTTPURLsFromFindings собирает URL из evidence httpRequestResponse (Katana, ZAP, Nuclei и т.д.).
 func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.Evidence) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -40,7 +39,6 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 	return out
 }
 
-// feedAppend добавляет URL в общую ленту пайплайна (дедуп по полному URL).
 func feedAppend(seen map[string]struct{}, feed *[]string, urls []string) {
 	for _, u := range urls {
 		u = strings.TrimSpace(u)
@@ -68,7 +66,6 @@ func nucleiTargetCap(cfg *config.ScanAsCode) int {
 	return 500
 }
 
-// nucleiCLITargetLines: сначала базовые target.baseUrl, затем URL из ленты, с общим лимитом.
 func nucleiCLITargetLines(cfg *config.ScanAsCode, bases []string, discoveryFeed []string, include bool) []string {
 	capN := nucleiTargetCap(cfg)
 	seen := make(map[string]struct{})
@@ -96,7 +93,6 @@ func nucleiCLITargetLines(cfg *config.ScanAsCode, bases []string, discoveryFeed 
 	return out
 }
 
-// nucleiBuiltinBases: для встроенного движка к ленте добавляются только новые origin (схема+хост), не каждый путь.
 func nucleiBuiltinBases(cfg *config.ScanAsCode, bases []string, discoveryFeed []string, include bool) []string {
 	maxO := nucleiBuiltinOriginCap(cfg)
 	seen := make(map[string]struct{})
@@ -162,7 +158,6 @@ func normalizeBaseURL(raw string) string {
 	return s
 }
 
-// writeNucleiTargetsFile пишет список целей для nuclei -l в каталог job (артефакт пайплайна).
 func writeNucleiTargetsFile(workDir, jobID string, lines []string) (string, error) {
 	path := filepath.Join(storage.JobRoot(workDir, jobID), "nuclei-targets.txt")
 	var b strings.Builder

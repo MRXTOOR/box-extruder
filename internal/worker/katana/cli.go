@@ -37,7 +37,6 @@ type CLIOptions struct {
 	Dedupe        config.DedupeConfig
 }
 
-// ResolveKatanaBinary возвращает DAST_KATANA_BIN или "katana".
 func ResolveKatanaBinary() string {
 	if v := strings.TrimSpace(os.Getenv("DAST_KATANA_BIN")); v != "" {
 		return v
@@ -45,12 +44,10 @@ func ResolveKatanaBinary() string {
 	return "katana"
 }
 
-// DockerKatanaImage возвращает DAST_KATANA_DOCKER_IMAGE (если задан — katana запускается через docker run).
 func DockerKatanaImage() string {
 	return strings.TrimSpace(os.Getenv("DAST_KATANA_DOCKER_IMAGE"))
 }
 
-// RunCLI запускает katana -jsonl и преобразует строки в Finding + Evidence.
 func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	if len(opts.Targets) == 0 {
 		return nil, nil, fmt.Errorf("katana CLI: no targets")

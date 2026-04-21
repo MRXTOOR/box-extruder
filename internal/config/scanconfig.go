@@ -43,10 +43,7 @@ type AuthProvider struct {
 	ID         string            `yaml:"id" json:"id"`
 	SecretsRef map[string]string `yaml:"secretsRef,omitempty" json:"secretsRef,omitempty"`
 	Config     map[string]string `yaml:"config,omitempty" json:"config,omitempty"`
-	// GenericLogin — универсальная схема логина (json/form/cookie + token extraction + verify).
 	GenericLogin *GenericLoginConfig `yaml:"genericLogin,omitempty" json:"genericLogin,omitempty"`
-	// InteractiveInputs — поля, которые CLI запрашивает у пользователя перед запуском.
-	// Значения кладутся в secretsRef[input.name].
 	InteractiveInputs []AuthInteractiveInput `yaml:"interactiveInputs,omitempty" json:"interactiveInputs,omitempty"`
 	Verification *AuthVerification `yaml:"verification,omitempty" json:"verification,omitempty"`
 }
@@ -185,7 +182,6 @@ type SuppressionRule struct {
 }
 
 type FalsePositiveWorkflow struct {
-	// ProgressiveConfirmation — nil означает «как в DefaultScanAsCode» (true после MergeDefaults).
 	ProgressiveConfirmation *bool `yaml:"progressiveConfirmation,omitempty" json:"progressiveConfirmation,omitempty"`
 	VerifyOnlyNewOrChanged  *bool `yaml:"verifyOnlyNewOrChanged,omitempty" json:"verifyOnlyNewOrChanged,omitempty"`
 }
@@ -193,8 +189,6 @@ type FalsePositiveWorkflow struct {
 type Outputs struct {
 	Formats []string   `yaml:"formats" json:"formats"`
 	Docx    *DocxOut   `yaml:"docx,omitempty" json:"docx,omitempty"`
-	// IncludeEvidence — явное включение/выключение секции Evidence в report.md.
-	// Если nil: при отсутствии outputs.docx — показывать доказательства; при наличии docx — как раньше только при docx.includeEvidence: true.
 	IncludeEvidence *bool `yaml:"includeEvidence,omitempty" json:"includeEvidence,omitempty"`
 	Paths   OutputPaths `yaml:"paths" json:"paths"`
 }
@@ -235,8 +229,6 @@ func DefaultScanAsCode() ScanAsCode {
 	}
 }
 
-// DefaultBudgets fills zero budgets.
-// ReportIncludeEvidence определяет, включать ли секцию Evidence в markdown/DOCX отчёт.
 func (c *ScanAsCode) ReportIncludeEvidence() bool {
 	o := c.Outputs
 	if o.IncludeEvidence != nil {
@@ -253,7 +245,6 @@ func (c *ScanAsCode) ReportIncludeEvidence() bool {
 
 func boolPtr(b bool) *bool { return &b }
 
-// EffectiveProgressiveConfirmation — учитывает nil как true после MergeDefaults.
 func (c *ScanAsCode) EffectiveProgressiveConfirmation() bool {
 	if c.Noise.FalsePositive.ProgressiveConfirmation != nil {
 		return *c.Noise.FalsePositive.ProgressiveConfirmation
@@ -261,7 +252,6 @@ func (c *ScanAsCode) EffectiveProgressiveConfirmation() bool {
 	return true
 }
 
-// EffectiveVerifyOnlyNewOrChanged — учитывает nil как false после MergeDefaults.
 func (c *ScanAsCode) EffectiveVerifyOnlyNewOrChanged() bool {
 	if c.Noise.FalsePositive.VerifyOnlyNewOrChanged != nil {
 		return *c.Noise.FalsePositive.VerifyOnlyNewOrChanged

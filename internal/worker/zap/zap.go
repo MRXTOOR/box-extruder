@@ -17,7 +17,6 @@ import (
 )
 
 // ZAPTraditionalReport is a subset of ZAP JSON report format.
-// ZAP 2.12+ часто кладёт URL в alerts[].instances[].uri; старый формат — alerts[].url.
 type ZAPTraditionalReport struct {
 	Site []struct {
 		Name string `json:"@name"`
@@ -208,7 +207,6 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-// absDockerBind возвращает абсолютный путь для docker -v: относительные пути иначе часто воспринимаются как имена volume.
 func absDockerBind(dir string) (string, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {

@@ -61,7 +61,6 @@ func BuildQueryParamRequestorProbes(baseURL string, authHeaders map[string]strin
 	return reqs
 }
 
-// BuildMergedPayloadProbes объединяет SQLi (?q=) и XSS (?x=) при включённых флагах.
 func BuildMergedPayloadProbes(baseURL string, authHeaders map[string]string, sqlPath, xssPath string) []map[string]any {
 	var out []map[string]any
 	if payloads.SQLiEnabled() && sqlPath != "" {

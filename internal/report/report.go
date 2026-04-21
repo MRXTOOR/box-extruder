@@ -23,7 +23,6 @@ func escapeMarkdownCell(s string) string {
 	return s
 }
 
-// reviewMarkdownCell — ячейка ручного review; пусто → «—», чтобы таблица не выглядела как «сломанная».
 func reviewMarkdownCell(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return "—"
@@ -231,10 +230,6 @@ func formatGenericJSONPayload(ev model.Evidence) string {
 	return "```json\n" + string(raw) + "\n```\n"
 }
 
-// RenderMarkdown builds report.md content from job and findings (final).
-// evidenceThreshold — budgets.verification.evidenceThreshold для колонки «Evidence quality»; пусто = low.
-// reportUpdatedAt — если не nil, в шапку добавляется строка о времени последнего обновления отчёта (например после ручного review).
-// scannedEndpoints — список просканированных эндпоинтов (из katana/zap).
 func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time, findings []model.Finding, evidence map[string]model.Evidence, includeEvidence bool, evidenceThreshold string, reportUpdatedAt *time.Time, scannedEndpoints []string) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "# DAST Report\n\n")
@@ -272,7 +267,6 @@ func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time
 		fmt.Fprintf(&b, "\n")
 	}
 	fmt.Fprintf(&b, "### By severity\n\n")
-	fmt.Fprintf(&b, "Уровни **CRITICAL** и **HIGH** соответствуют наиболее опасным находкам. Ниже всегда приведены все уровни; **0** означает, что находок этого уровня нет.\n\n")
 	for _, s := range []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo} {
 		fmt.Fprintf(&b, "- **%s**: %d\n", s, bySev[s])
 	}
@@ -282,7 +276,6 @@ func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time
 	}
 	if len(findings) > 0 {
 		fmt.Fprintf(&b, "\n## Evidence summary\n\n")
-		fmt.Fprintf(&b, "HTTP evidence quality vs threshold **%s**: **sufficient** — порог выполнен; **partial** — есть HTTP, но не дотягивает до порога; **non-http** — только не-HTTP артефакты; **none** — нет ссылок на evidence.\n\n", th)
 		fmt.Fprintf(&b, "| Finding ID | Rule | Severity | Status | Evidence refs | Quality |\n")
 		fmt.Fprintf(&b, "|------------|------|----------|--------|---------------|--------|\n")
 		for _, f := range findings {
@@ -293,7 +286,6 @@ func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time
 		fmt.Fprintf(&b, "\n")
 	}
 	fmt.Fprintf(&b, "## Findings\n\n")
-	fmt.Fprintf(&b, "Колонки **Reviewer**, **Reviewed at** и **Review note** заполняются только после ручного review находки (поля `reviewedBy` / `reviewedAt` / `reviewNote` в модели finding); при чисто автоматическом скане там остаётся «—».\n\n")
 	fmt.Fprintf(&b, "| Severity | Status | Rule | Location | Title | Reviewer | Reviewed at | Review note |\n")
 	fmt.Fprintf(&b, "|----------|--------|------|----------|-------|----------|-------------|-------------|\n")
 	for _, f := range findings {
@@ -454,7 +446,6 @@ func WriteReportHTMLFallback(mdPath, htmlPath string) error {
 	return os.WriteFile(htmlPath, []byte(b.String()), 0o644)
 }
 
-// PandocToDocxOptional: при наличии pandoc — report.docx; иначе — report.html (fallback для Word/LibreOffice).
 func PandocToDocxOptional(mdPath, docxPath, referenceDocx string) error {
 	if _, err := exec.LookPath("pandoc"); err != nil {
 		htmlPath := strings.TrimSuffix(docxPath, ".docx") + ".html"

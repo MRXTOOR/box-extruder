@@ -32,10 +32,6 @@ func UseAutomation(step config.ScanStep) bool {
 	return step.ZAPSpiderAjax
 }
 
-// RunAutomation runs ZAP via `zap.sh -cmd -autorun` (Docker или локальный ZAP).
-// allow — regex из scope.allow; при пустом списке добавляется baseURL.*
-// authHeaders — заголовки для всех запросов (Authorization, Cookie и т.д.); попадают в automation как job replacer.
-// sqlPayloadPath / xssPayloadPath — sqli.txt и xss.txt для ZAP requestor до spider.
 func RunAutomation(
 	targetURL, outDir, dockerImage, configFileDir string,
 	allow []string,
@@ -267,14 +263,10 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 	return yaml.Marshal(doc)
 }
 
-// zapActiveScanEnabled включает activeScan в Automation Framework.
-// По умолчанию включено; отключение: DAST_ZAP_ACTIVE_SCAN=0.
 func zapActiveScanEnabled() bool {
 	return strings.TrimSpace(os.Getenv("DAST_ZAP_ACTIVE_SCAN")) != "0"
 }
 
-// zapActiveScanMaxMinutes ограничивает длительность activeScan.
-// Значение можно задать через DAST_ZAP_ACTIVE_SCAN_MAX_MINUTES, по умолчанию 10.
 func zapActiveScanMaxMinutes() int {
 	if v := strings.TrimSpace(os.Getenv("DAST_ZAP_ACTIVE_SCAN_MAX_MINUTES")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -284,10 +276,6 @@ func zapActiveScanMaxMinutes() int {
 	return 10
 }
 
-// remapLocalhostForZAPDocker переписывает 127.0.0.1/localhost в host.docker.internal для ZAP в Docker:
-// из контейнера ZAP localhost — это сам контейнер, а не хост с Juice Shop.
-// Добавляет --add-host=host.docker.internal:host-gateway для docker run.
-// Отключение: DAST_ZAP_NO_LOCALHOST_REMAP=1 или локальный ZAP (DAST_ZAP_LOCAL=1).
 func remapLocalhostForZAPDocker(targetURL string, allow []string) (string, []string, []string) {
 	if useLocalZAP() {
 		return targetURL, allow, nil

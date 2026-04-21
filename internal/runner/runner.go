@@ -867,8 +867,6 @@ func pathExists(p string) bool {
 	return err == nil
 }
 
-// resolveTemplatePaths ищет относительные пути: рядом с YAML, затем у родителя workDir (корень репо при work=./work),
-// затем в workDir. Нужно для задач из API: config лежит в work/jobs/<id>/config/, а templates/ — в корне проекта.
 func resolveTemplatePaths(configDir string, paths []string, workDir string) []string {
 	repoRoot := filepath.Clean(filepath.Join(workDir, ".."))
 	if len(paths) == 0 {
@@ -916,8 +914,6 @@ func resolveOneRelativeTemplatePath(configDir, p, workDir, repoRoot string) stri
 	return ""
 }
 
-// extractEndpoint извлекает URL из evidence (полный URL с query params).
-// Фильтрует URL с payload для XSS/SQLi атак — сохраняет только реальные эндпоинты.
 func extractEndpoint(e model.Evidence) string {
 	rawURL := ""
 	switch p := e.Payload.(type) {
@@ -931,31 +927,26 @@ func extractEndpoint(e model.Evidence) string {
 	if rawURL == "" {
 		return ""
 	}
-	// Валидация URL
 	_, err := parseURL(rawURL)
 	if err != nil {
 		return ""
 	}
-	// Фильтруем URL с payload для XSS/SQLi атак
 	if isAttackPayloadURL(rawURL) {
 		return ""
 	}
 	return rawURL
 }
 
-// isAttackPayloadURL проверяет, содержит ли URL известные payload-паттерны XSS/SQLi
 func isAttackPayloadURL(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.RawQuery == "" {
 		return false
 	}
-	// Проверяем raw и decoded query
 	rawQ := strings.ToLower(u.RawQuery)
 	decodedQ := ""
 	if d, err := url.QueryUnescape(u.RawQuery); err == nil {
 		decodedQ = strings.ToLower(d)
 	}
-	// Специфичные XSS payload-паттерны
 	xssPatterns := []string{
 		"alert(", "prompt(", "confirm(",
 		"document.cookie", "document.location", "document.write",
@@ -970,7 +961,6 @@ func isAttackPayloadURL(rawURL string) bool {
 		"<iframe", "%3ciframe",
 		"expression(alert",
 	}
-	// Специфичные SQLi payload-паттерны
 	sqliPatterns := []string{
 		"' or 1=1", "' and 1=1", "' union select", "' union all select",
 		"' insert into", "' drop table", "' truncate ",
@@ -982,7 +972,6 @@ func isAttackPayloadURL(rawURL string) bool {
 		"@@version", "@@servername",
 		"convert(int", "cast(",
 	}
-	// Проверяем оба варианта
 	for _, q := range []string{rawQ, decodedQ} {
 		if q == "" {
 			continue
@@ -1004,7 +993,6 @@ func isAttackPayloadURL(rawURL string) bool {
 func parseURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		// Пробуем добавить схему если отсутствует
 		if strings.HasPrefix(raw, "//") {
 			return url.Parse("https:" + raw)
 		}

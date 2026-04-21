@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// AppendQueryParamSeedURLs добавляет URL вида base?<param>=<payload> (Katana и др.).
 func AppendQueryParamSeedURLs(seeds []string, baseURL, paramName, payloadPath string, max int) ([]string, error) {
 	if payloadPath == "" || max <= 0 {
 		return seeds, nil

@@ -22,10 +22,8 @@ import (
 type CLIOptions struct {
 	Binary        string
 	Targets       []string
-	// ListFile — путь к файлу со списком целей (одна URL на строку); взаимоисключимо с Targets.
 	ListFile      string
 	TemplatePaths []string
-	// Headers as "Name: value" for each nuclei -H.
 	Headers   []string
 	ExtraArgs []string
 	RateLimit int
@@ -73,7 +71,6 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// -ot: не вшивать шаблон в JSONL (меньше трафика и проще парсинг).
 	args := []string{"-silent", "-nc", "-jsonl", "-ot"}
 	if hasList {
 		args = append(args, "-l", listFile)

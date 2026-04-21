@@ -65,7 +65,7 @@ func PrintDemoBanner(w io.Writer, workDir, jobID string) {
 	_, _ = fmt.Fprintf(w, "  Orchestrator log:  %s\n", storage.OrchestratorLogPath(workDir, jobID))
 	_, _ = fmt.Fprintf(w, "  Findings:          %s\n", filepath.Join(root, "findings", "findings-final.json"))
 	_, _ = fmt.Fprintf(w, "  Report MD:         %s\n", filepath.Join(root, "reports", "report.md"))
-	_, _ = fmt.Fprintf(w, "  Report Word/LO:    %s (или %s при установленном pandoc)\n",
+	_, _ = fmt.Fprintf(w, "  Report Word/LO:    %s%s\n",
 		filepath.Join(root, "reports", "report.html"),
 		filepath.Join(root, "reports", "report.docx"))
 	_, _ = fmt.Fprintf(w, "Tail log: scan logs last -work %s -f\n\n", workDir)

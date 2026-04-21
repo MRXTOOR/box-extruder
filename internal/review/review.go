@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Action — решение по находке.
 type Action string
 
 const (
@@ -23,7 +22,6 @@ const (
 	ActionReopen  Action = "reopen"
 )
 
-// ParseAction из флагов CLI.
 func ParseAction(s string) (Action, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "confirm", "confirmed":
@@ -37,7 +35,6 @@ func ParseAction(s string) (Action, error) {
 	}
 }
 
-// Apply обновляет findings-final.json, пишет evidence manualReview и пересобирает report.md.
 func Apply(workDir, jobID, findingID string, act Action, note, actor string) error {
 	if strings.TrimSpace(findingID) == "" {
 		return fmt.Errorf("findingId required")

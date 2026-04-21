@@ -20,17 +20,14 @@ type StepType string
 
 const (
 	StepCrawl           StepType = "crawl"
-	// StepKatana — краулинг projectdiscovery/katana (-jsonl), находки = обнаруженные URL.
 	StepKatana          StepType = "katana"
 	StepPassive         StepType = "passive"
 	StepTargetedActive  StepType = "targetedActive"
 	StepFullActive      StepType = "fullActive"
 	StepVerification    StepType = "verification"
 	StepNucleiTemplates StepType = "nucleiTemplates"
-	// StepNucleiCLI — evidence от официального бинаря projectdiscovery/nuclei (-jsonl).
 	StepNucleiCLI       StepType = "nucleiCLI"
 	StepZAPBaseline     StepType = "zapBaseline"
-	// StepManualReview — ручное подтверждение/отклонение находки (evidence manualReview).
 	StepManualReview    StepType = "manualReview"
 )
 
@@ -74,7 +71,6 @@ const (
 	EvidencePageMarker          EvidenceType = "pageMarker"
 	EvidenceTrace               EvidenceType = "trace"
 	EvidenceOther               EvidenceType = "other"
-	// EvidenceManualReview — запись решения ревьюера (подтверждение / ложноположительная / переоткрыть).
 	EvidenceManualReview        EvidenceType = "manualReview"
 )
 
@@ -146,7 +142,6 @@ type Finding struct {
 	SuppressionReason string         `json:"suppressionReason,omitempty"`
 	Title            string          `json:"title,omitempty"`
 	Description      string          `json:"description,omitempty"`
-	// Ручная проверка (после scan review …)
 	ReviewedBy       string          `json:"reviewedBy,omitempty"`
 	ReviewedAt       *time.Time      `json:"reviewedAt,omitempty"`
 	ReviewNote       string          `json:"reviewNote,omitempty"`
@@ -172,7 +167,6 @@ type HTTPRequestResponsePayload struct {
 	ResponseBodySnippet string        `json:"responseBodySnippet,omitempty"`
 }
 
-// ManualReviewPayload — доказательство решения по находке (кто, когда, что сделал).
 type ManualReviewPayload struct {
 	Action            string `json:"action"` // confirm | reject | reopen
 	Note              string `json:"note,omitempty"`

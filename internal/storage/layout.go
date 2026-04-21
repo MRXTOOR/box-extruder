@@ -197,7 +197,6 @@ func LoadEndpointsTxt(workDir, jobID string) ([]string, error) {
 	return out, nil
 }
 
-// evidenceFileJSON — payload как RawMessage, чтобы при загрузке не терять структуру.
 type evidenceFileJSON struct {
 	EvidenceID string          `json:"evidenceId"`
 	Type       string          `json:"type"`
@@ -206,7 +205,6 @@ type evidenceFileJSON struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
-// LoadEvidenceDir загружает все evidence-*.json в map по evidenceId.
 func LoadEvidenceDir(workDir, jobID string) (map[string]model.Evidence, error) {
 	dir := filepath.Join(JobRoot(workDir, jobID), "evidence")
 	entries, err := os.ReadDir(dir)

@@ -1,4 +1,3 @@
-# Интеграционный конфиг: все внешние инструменты отключаются флагами runner (CI).
 version: "1.0"
 job:
   name: "pipeline-integration"
