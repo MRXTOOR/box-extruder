@@ -1,273 +1,183 @@
-# DAST Scanner - Dynamic Application Security Testing Platform
+# AppSec-DAST
 
-Автоматизированная платформа для динамического анализа безопасности веб-приложений.
-
-### Компоненты
-
-| Компонент | Описание | Порт |
-|-----------|----------|------|
-| **Nginx** | Фронтенд (React) | 80 |
-| **Server** | Go API сервер | 8080 |
-| **PostgreSQL** | База данных | 5432 |
-| **Redis** | Очередь задач и кэш | 6379 |
-| **Worker** | Исполнение сканов | - |
+Платформа для автоматизированного динамического анализа безопасности веб-приложений (DAST).
 
 ## Быстрый старт
 
 ### Требования
 
-- Docker 20.10+
-- Docker Compose 2.0+
+- Docker и Docker Compose
+- PostgreSQL 15+
+- Redis 7+
 
 ### Запуск
 
 ```bash
-git clone <repo-url>
-cd box-extruder
-
-docker compose -f docker-compose.full.yml up -d
-
-http://localhost
+cd deploy
+docker compose up -d
 ```
 
-### Учётные данные по умолчанию
+### Доступные сервисы
 
-- **Login**: `admin`
-- **Password**: `admin`
+| Сервис | Порт | URL |
+|--------|------|-----|
+| Frontend | 80 | http://localhost |
+| API | 8080 | http://localhost:8080 |
+| PostgreSQL | 5432 | localhost:5432 |
+| Redis | 6379 | localhost:6379 |
 
-## Развёртывание
+## Управление пользователями
 
-### Конфигурация
-
-1. Создайте `.env` файл:
+### Создание пользователя (локально)
 
 ```bash
-# PostgreSQL
-POSTGRES_USER=dast
-POSTGRES_PASSWORD=your_secure_password
-POSTGRES_DB=dast
+# Собрать CLI
+cd /mnt/projects/code/box-extruder
+go build -o /tmp/dast-cli ./cmd/cli
 
-# Redis
-REDIS_PASSWORD=your_redis_password
-
-# JWT
-JWT_SECRET=your_jwt_secret_min_32_chars
-
-# Опционально - изменить порты
-SERVER_PORT=8080
-NGINX_PORT=80
+# Создать пользователя
+/tmp/dast-cli user add --login=username --password=password --role=specialist --db-host=localhost
 ```
 
-2. Запустите:
+### Роли
+
+- `admin` - полный доступ
+- `specialist` - ограниченный доступ
+
+### Создание пользователя в контейнере БД
 
 ```bash
-docker compose -f docker-compose.full.yml up -d --build
+# Через psql напрямую
+docker exec -i dast-postgres psql -U dast -d dast -c "
+INSERT INTO users (login, password_hash, role) 
+VALUES ('username', '\$2a\$10\$hash', 'specialist');
+"
 ```
 
-### Проверка статуса
+### Список пользователей
 
 ```bash
-# Статус контейнеров
-docker compose -f docker-compose.full.yml ps
+/tmp/dast-cli user list --db-host=localhost
+```
 
-# Логи
-docker compose -f docker-compose.full.yml logs -f
+### Удаление пользователя
+
+```bash
+/tmp/dast-cli user delete --login=username --db-host=localhost
 ```
 
 ## API
 
 ### Авторизация
 
-Если работа проводиться через терминал\программу для запросов
-
 ```bash
-# Вход
+# Логин
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"login":"admin","password":"admin"}'
+  -d '{"login": "admin", "password": "admin123"}'
 
 # Ответ
-{"token":"eyJhbGci...","role":"admin","user":"admin"}
+# {"token": "eyJ...", "user": "admin", "role": "admin"}
 ```
 
-### Управление сканами
+### Использование токена
 
 ```bash
 TOKEN="your_token"
 
-# Создать скан
+# Создать сканирование
 curl -X POST http://localhost:8080/api/v1/scans \
-  -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "targetUrl": "https://example.com",
-    "authUrl": "https://example.com/login",
-    "login": "user@example.com",
-    "password": "secret"
-  }'
+  -H "Content-Type: application/json" \
+  -d '{"targetUrl": "https://example.com"}'
 
-# Список сканов
+# Список сканирований
 curl http://localhost:8080/api/v1/scans \
   -H "Authorization: Bearer $TOKEN"
 
-# Статус скана
-curl http://localhost:8080/api/v1/scans/{scan_id}/status \
+# Статус сканирования
+curl http://localhost:8080/api/v1/scans/{id}/status \
   -H "Authorization: Bearer $TOKEN"
 
-# Удалить скан
-curl -X DELETE http://localhost:8080/api/v1/scans/{scan_id} \
+# Отчет
+curl http://localhost:8080/api/v1/scans/{id}/reports \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Отчёты
+## Конфигурация
 
-```bash
-# Markdown
-curl http://localhost:8080/api/v1/scans/{scan_id}/reports \
-  -H "Authorization: Bearer $TOKEN" \
-  -o report.md
+### Docker Compose
 
-# HTML
-curl "http://localhost:8080/api/v1/scans/{scan_id}/reports?format=html" \
-  -H "Authorization: Bearer $TOKEN" \
-  -o report.html
-
-# DOCX
-curl "http://localhost:8080/api/v1/scans/{scan_id}/reports?format=docx" \
-  -H "Authorization: Bearer $TOKEN" \
-  -o report.docx
-
-# Эндпоинты (TXT)
-curl "http://localhost:8080/api/v1/scans/{scan_id}/reports?format=endpoints" \
-  -H "Authorization: Bearer $TOKEN" \
-  -o endpoints.txt
-```
-
-## Управление пользователями
-
-### Через CLI
-
-```bash
-# Подключиться к контейнеру
-docker exec -it dast-server sh
-
-# Создать пользователя
-dast-server user add --login=user --password=pass --role=specialist
-
-# Изменить пароль
-dast-server user password --login=user --password=newpass
-
-# Удалить пользователя
-dast-server user delete --login=user
-
-# Сделать админом
-dast-server user role --login=user --role=admin
-```
-
-### Через базу данных
-
-```bash
-# Подключиться к PostgreSQL
-docker exec -it dast-postgres psql -U dast -d dast
-
-# Добавить пользователя (пароль хешируется через bcrypt)
-INSERT INTO users (login, password_hash, role) VALUES (
-  'newuser',
-  '$2a$10$hashed_password_here',
-  'specialist'
-);
-
-# Список пользователей
-SELECT id, login, role FROM users;
-```
-
-## Конфигурация сканирования
-
-### Параметры сканирования
+Основные переменные окружения в `docker-compose.enterprise.yml`:
 
 ```yaml
-version: "1.0"
-job:
-  name: "my-scan"
-
-targets:
-  - type: "web"
-    baseUrl: "https://example.com"
-    startPoints:
-      - "https://example.com/login"
-
-scope:
-  allow:
-    - ".*example\\.com.*"
-  deny:
-    - ".*logout.*"
-  maxUrls: 5000
-
-auth:
-  strategy: "providerChain"
-  providers:
-    - type: "genericLogin"
-      id: "login-form"
-      genericLogin:
-        loginURL: "https://example.com/login"
-        usernameField: "email"
-        passwordField: "password"
-        submitField: "button[type=submit]"
-        checkURL: "https://example.com/dashboard"
-        expectedStatus: 200
-
-scan:
-  plan:
-    - stepType: "katana"
-      enabled: true
-      katanaDepth: 3
-      katanaMaxUrls: 5000
-    - stepType: "zapBaseline"
-      enabled: true
-      zapAutomationFramework: true
-      zapMaxSpiderMinutes: 30
-      zapPassiveWaitSeconds: 120
-    - stepType: "nucleiTemplates"
-      enabled: true
+environment:
+  - DB_HOST=postgres
+  - DB_PORT=5432
+  - DB_USER=dast
+  - DB_PASS=dast
+  - DB_NAME=dast
+  - REDIS_HOST=redis
+  - REDIS_PORT=6379
+  - JWT_SECRET=changeme
+  - WORK_DIR=/workspace/work
 ```
 
-## Устранение проблем
+### Окружения
 
-### Логи
+- `postgres` - хост PostgreSQL
+- `redis` - хост Redis
+- `JWT_SECRET` - секретный ключ для JWT токенов
+
+## Перетегирование образов
+
+После переименования проекта на AppSec-DAST:
 
 ```bash
-# Все сервисы
-docker compose -f docker-compose.full.yml logs
+# Перетег образов
+docker tag box-extruder-dast-server:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-server:1.0.0
+docker tag box-extruder-dast-worker:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-worker:1.0.0
+docker tag box-extruder-frontend:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/frontend:1.0.0
+docker tag box-extruder-nginx:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/nginx:1.0.0
 
-# Конкретный сервис
-docker compose -f docker-compose.full.yml logs dast-server
-docker compose -f docker-compose.full.yml logs dast-worker
+# Пуш в registry
+docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-server:1.0.0
+docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-worker:1.0.0
+docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/frontend:1.0.0
+docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/nginx:1.0.0
 ```
 
-### Частые проблемы
+## Устранение неполадок
 
-1. **ZAP занят порт 9090**
-   ```bash
-   # Проверить занятые порты
-   netstat -tlnp | grep 9090
+### Проверка статуса контейнеров
 
-   # Остановить конфликтующий процесс
-   ```
+```bash
+docker ps
+```
 
-2. **PostgreSQL не подключается**
-   ```bash
-   # Проверить статус
-   docker compose -f docker-compose.full.yml logs postgres
+### Просмотр логов
 
-   # Проверить подключение
-   docker exec -it dast-postgres pg_isready
-   ```
+```bash
+# Сервер
+docker logs deploy-dast-server
 
-3. **Worker не выполняет задачи**
-   ```bash
-   # Проверить очередь Redis
-   docker exec -it dast-redis redis-cli LLEN dast:queue
+# Фронтенд
+docker logs deploy-frontend
 
-   # Проверить логи worker
-   docker compose -f docker-compose.full.yml logs dast-worker
-   ```
+# Nginx
+docker logs deploy-nginx
+```
+
+### Проверка здоровья
+
+```bash
+curl http://localhost:8080/health
+curl http://localhost/api/health
+```
+
+### Перезапуск сервисов
+
+```bash
+cd deploy
+docker compose restart
+```
