@@ -36,6 +36,14 @@ RUN wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download
 RUN wget -q -O /tmp/nuclei.zip https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.zip && \
     unzip -o -q /tmp/nuclei.zip -d /tmp/ && mv /tmp/nuclei /usr/local/bin/nuclei && rm /tmp/nuclei.zip
 
+# Официальные community-шаблоны Nuclei (https://github.com/projectdiscovery/nuclei-templates)
+RUN wget -q -O /tmp/nuclei-templates.tgz https://github.com/projectdiscovery/nuclei-templates/archive/refs/heads/master.tar.gz && \
+    mkdir -p /opt && tar -xzf /tmp/nuclei-templates.tgz -C /opt && \
+    mv /opt/nuclei-templates-master /opt/nuclei-templates && \
+    rm /tmp/nuclei-templates.tgz
+
+ENV DAST_NUCLEI_TEMPLATES_DIR=/opt/nuclei-templates
+
 COPY --from=builder /dast-worker /usr/local/bin/
 COPY templates/ /workspace/templates/
 CMD ["dast-worker"]

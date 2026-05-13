@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,8 +40,8 @@ type Result struct {
 func (e *Engine) Run(cfg *config.ScanAsCode) (*Result, error) {
 	res := &Result{
 		Context: model.ContextSnapshot{
-			ContextID:     uuid.NewString(),
-			CreatedAt:     time.Now().UTC(),
+			ContextID:        uuid.NewString(),
+			CreatedAt:        time.Now().UTC(),
 			AuthVerification: model.AuthUncertain,
 		},
 		HeaderInject: map[string]string{},
@@ -56,6 +57,12 @@ func (e *Engine) Run(cfg *config.ScanAsCode) (*Result, error) {
 	if cfg.Auth == nil || cfg.Auth.Strategy == "none" || len(cfg.Auth.Providers) == 0 {
 		res.Context.AuthVerification = model.AuthAuthenticated
 		return res, nil
+	}
+
+	if cfg.InsecureSkipTLSVerify {
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		e.HTTPClient = &http.Client{Timeout: 30 * time.Second, Transport: tr}
 	}
 
 	for _, p := range cfg.Auth.Providers {
@@ -87,11 +94,11 @@ func (e *Engine) Run(cfg *config.ScanAsCode) (*Result, error) {
 						StepType:   model.StepCrawl,
 						ContextID:  res.Context.ContextID,
 						Payload: model.AuthVerificationPayload{
-							ProviderID: p.ID,
-							CheckURL:   urlStr,
+							ProviderID:     p.ID,
+							CheckURL:       urlStr,
 							ExpectedStatus: exp,
-							Result:     model.AuthNotAuthenticated,
-							Detail:     err.Error(),
+							Result:         model.AuthNotAuthenticated,
+							Detail:         err.Error(),
 						},
 					}
 					res.Evidence = append(res.Evidence, ev)
@@ -273,7 +280,7 @@ func (e *Engine) Run(cfg *config.ScanAsCode) (*Result, error) {
 				return res, nil
 			}
 		case "genericLogin":
-			if p.GenericLogin == nil || strings.TrimSpace(p.GenericLogin.LoginURL) == "" || strings.TrimSpace(p.GenericLogin.VerifyURL) == "" {
+			if p.GenericLogin == nil || strings.TrimSpace(p.GenericLogin.LoginURL) == "" {
 				continue
 			}
 			if p.SecretsRef == nil {
@@ -384,6 +391,35 @@ func (e *Engine) Run(cfg *config.ScanAsCode) (*Result, error) {
 					res.CookieHeader = cookies
 					res.HeaderInject["Cookie"] = strings.TrimSpace(strings.TrimSpace(res.HeaderInject["Cookie"]+"; ") + cookies)
 				}
+			}
+
+			if strings.TrimSpace(loginCfg.VerifyURL) == "" {
+				hasSession := token != "" || strings.TrimSpace(res.HeaderInject["Cookie"]) != "" || strings.TrimSpace(res.CookieHeader) != ""
+				authRes := model.AuthAuthenticated
+				detail := "verifyUrl omitted: trusting login response (token or cookies)"
+				if !hasSession {
+					authRes = model.AuthNotAuthenticated
+					detail = "verifyUrl omitted and login response had no token or Set-Cookie"
+				}
+				res.Context.AuthVerification = authRes
+				ev := model.Evidence{
+					EvidenceID: evID,
+					Type:       model.EvidenceAuthVerification,
+					StepType:   model.StepCrawl,
+					ContextID:  res.Context.ContextID,
+					Payload: model.AuthVerificationPayload{
+						ProviderID: p.ID,
+						CheckURL:   strings.TrimSpace(loginCfg.LoginURL),
+						Result:     authRes,
+						Detail:     detail,
+					},
+				}
+				res.Evidence = append(res.Evidence, ev)
+				res.Context.AuthEvidenceRefs = append(res.Context.AuthEvidenceRefs, evID)
+				if authRes == model.AuthAuthenticated {
+					return res, nil
+				}
+				continue
 			}
 
 			vmethod := strings.ToUpper(strings.TrimSpace(loginCfg.VerifyMethod))

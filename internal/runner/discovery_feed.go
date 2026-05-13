@@ -25,8 +25,15 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 			if !ok {
 				continue
 			}
-			u := strings.TrimSpace(pl.URL)
-			if u == "" {
+			raw := strings.TrimSpace(pl.URL)
+			if raw == "" {
+				continue
+			}
+			if isAttackPayloadURL(raw) {
+				continue
+			}
+			u, ok := normalizeDiscoveryURL(raw)
+			if !ok || u == "" {
 				continue
 			}
 			if _, dup := seen[u]; dup {
@@ -37,6 +44,19 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 		}
 	}
 	return out
+}
+
+func normalizeDiscoveryURL(raw string) (string, bool) {
+	u, err := parseURL(raw)
+	if err != nil {
+		return "", false
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return u.String(), true
 }
 
 func feedAppend(seen map[string]struct{}, feed *[]string, urls []string) {

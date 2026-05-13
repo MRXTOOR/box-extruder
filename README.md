@@ -12,9 +12,17 @@
 
 ### Запуск
 
+Файл стека: `deploy/docker-compose.yml`.
+
 ```bash
 cd deploy
 docker compose up -d
+```
+
+Из корня репозитория:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d
 ```
 
 ### Доступные сервисы
@@ -108,7 +116,7 @@ curl http://localhost:8080/api/v1/scans/{id}/reports \
 
 ### Docker Compose
 
-Основные переменные окружения в `docker-compose.enterprise.yml`:
+Основные переменные окружения в `deploy/docker-compose.yml`:
 
 ```yaml
 environment:
@@ -158,14 +166,14 @@ docker ps
 ### Просмотр логов
 
 ```bash
-# Сервер
-docker logs deploy-dast-server
+# API
+docker logs dast-server
 
-# Фронтенд
-docker logs deploy-frontend
+# Воркер
+docker logs dast-worker
 
-# Nginx
-docker logs deploy-nginx
+# Nginx (статика + прокси /api)
+docker logs dast-nginx
 ```
 
 ### Проверка здоровья

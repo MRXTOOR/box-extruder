@@ -59,13 +59,12 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	args := []string{"-silent", "-nc", "-jsonl", "-ob", "-no-redirect"}
+	args := []string{"-silent", "-nc", "-jsonl", "-ob", "-dr"}
 	if opts.Depth > 0 {
 		args = append(args, "-d", fmt.Sprintf("%d", opts.Depth))
 	}
-	if opts.MaxURLs > 0 {
-		args = append(args, "-max-urls", fmt.Sprintf("%d", opts.MaxURLs))
-	}
+	// NOTE: current bundled katana build does not support -max-urls.
+	// We keep MaxURLs in config for future compatibility but do not pass an unsupported flag.
 	for _, u := range opts.Targets {
 		u = strings.TrimSpace(u)
 		if u == "" {
@@ -144,15 +143,29 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	runErr := cmd.Run()
 	out := stdout.Bytes()
 	errMsg := strings.TrimSpace(stderr.String())
-	if runErr != nil && len(bytes.TrimSpace(out)) == 0 {
-		if errMsg == "" {
-			errMsg = runErr.Error()
+	if runErr != nil {
+		detail := errMsg
+		if detail == "" {
+			detail = strings.TrimSpace(string(out))
 		}
-		return nil, nil, fmt.Errorf("katana CLI: %w: %s", runErr, truncateRunMsg(errMsg, 4000))
+		if detail == "" {
+			detail = runErr.Error()
+		}
+		return nil, nil, fmt.Errorf("katana CLI: %w: %s", runErr, truncateRunMsg(detail, 4000))
 	}
-	if len(errMsg) > 0 && strings.Contains(errMsg, "failed") || strings.Contains(errMsg, "error") {
-		return nil, nil, fmt.Errorf("katana stderr: %s", truncateRunMsg(errMsg, 4000))
+	if len(bytes.TrimSpace(out)) == 0 {
+		if errMsg == "" {
+			errMsg = "empty output"
+		}
+		return nil, nil, fmt.Errorf("katana CLI: no JSONL output: %s", truncateRunMsg(errMsg, 4000))
 	}
+	if !bytes.Contains(out, []byte("{")) {
+		if errMsg == "" {
+			errMsg = strings.TrimSpace(string(out))
+		}
+		return nil, nil, fmt.Errorf("katana CLI: unexpected non-JSON output: %s", truncateRunMsg(errMsg, 4000))
+	}
+	// Katana пишет в stderr предупреждения даже при успехе; не трактуем их как фатальную ошибку.
 	findings, evidence, perr := parseKatanaJSONL(out, opts.ContextID, opts.Dedupe)
 	if perr != nil {
 		return nil, nil, perr

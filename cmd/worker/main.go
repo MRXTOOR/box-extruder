@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
 	"github.com/box-extruder/dast/internal/runner"
+	"github.com/box-extruder/dast/internal/storage"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
 )
@@ -75,7 +78,7 @@ func main() {
 			if canceled {
 				log.Printf("Job %s was canceled before start", job.JobID)
 				queue.ClearCancelFlag(ctx, rdb, job.JobID)
-				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELED")
+				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
 				continue
 			}
 
@@ -95,6 +98,10 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Job %s panic: %v", job.JobID, r)
+			if fmt.Sprint(r) == "canceled" {
+				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
+				return
+			}
 			db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
 		}
 	}()
@@ -104,12 +111,18 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 		return
 	}
 
-	cfg := buildConfig(job)
-	yamlData, err := yaml.Marshal(cfg)
-	if err != nil {
-		log.Printf("Failed to marshal config: %v", err)
-		db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
-		return
+	var yamlData []byte
+	if strings.TrimSpace(job.ConfigYAML) != "" {
+		yamlData = []byte(job.ConfigYAML)
+	} else {
+		cfg := buildConfig(job)
+		var err error
+		yamlData, err = yaml.Marshal(cfg)
+		if err != nil {
+			log.Printf("Failed to marshal config: %v", err)
+			db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
+			return
+		}
 	}
 
 	parsedCfg, err := config.ParseScanAsCode(yamlData)
@@ -125,10 +138,23 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 		Config:        parsedCfg,
 		JobID:         job.JobID,
 		ConfigFileDir: "/workspace",
+		UserID:        job.UserID,
+		OnFollowUpEnqueue: func(req runner.FollowUpEnqueueRequest) error {
+			if _, err := db.CreateScan(ctx, pool, req.UserID, req.JobID, req.TargetURL, req.ConfigHash); err != nil {
+				return fmt.Errorf("create scan (nuclei follow-up): %w", err)
+			}
+			return queue.Enqueue(ctx, rdb, queue.JobMessage{
+				JobID:      req.JobID,
+				UserID:     req.UserID,
+				TargetURL:  req.TargetURL,
+				ConfigYAML: string(req.ConfigYAML),
+				ConfigHash: req.ConfigHash,
+			})
+		},
 		OnProgress: func(ts time.Time, level, msg string, fields map[string]string) {
 			if canceled, _ := queue.GetCancelFlag(ctx, rdb, job.JobID); canceled {
 				log.Printf("Job %s canceled during execution", job.JobID)
-				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELED")
+				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
 				panic("canceled")
 			}
 		},
@@ -138,7 +164,7 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 	if err != nil {
 		if canceled, _ := queue.GetCancelFlag(ctx, rdb, job.JobID); canceled {
 			log.Printf("Job %s was canceled", job.JobID)
-			db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELED")
+			db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
 			return
 		}
 		log.Printf("Job %s failed: %v", job.JobID, err)
@@ -146,11 +172,17 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 		return
 	}
 
-	if err := db.UpdateScanStatus(ctx, pool, job.JobID, "SUCCEEDED"); err != nil {
-		log.Printf("Failed to update status to SUCCEEDED: %v", err)
+	finalStatus := "SUCCEEDED"
+	if j, err := storage.ReadJob(workDir, job.JobID); err == nil {
+		if s := strings.TrimSpace(string(j.Status)); s != "" {
+			finalStatus = s
+		}
+	}
+	if err := db.UpdateScanStatus(ctx, pool, job.JobID, finalStatus); err != nil {
+		log.Printf("Failed to update status to %s: %v", finalStatus, err)
 	}
 
-	log.Printf("Job %s completed", job.JobID)
+	log.Printf("Job %s completed with status %s", job.JobID, finalStatus)
 }
 
 func buildConfig(job *queue.JobMessage) *config.ScanAsCode {

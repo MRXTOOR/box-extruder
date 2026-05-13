@@ -1,11 +1,13 @@
 package runner
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,15 +32,19 @@ type Options struct {
 	WorkDir       string
 	ConfigYAML    []byte
 	Config        *config.ScanAsCode
-	SkipZAPDocker   bool
-	SkipNucleiCLI   bool
-	SkipKatanaCLI   bool
+	SkipZAPDocker bool
+	SkipNucleiCLI bool
+	SkipKatanaCLI bool
 	// JobID if set reuses workspace (Execute path); empty creates new id in Run.
 	JobID string
 	// ConfigFileDir is the directory of the scan-as-code file (for resolving relative templatePaths).
 	ConfigFileDir string
 	// OnProgress optional; called together with AppendOrchestratorLog.
 	OnProgress ProgressSink
+	// UserID заполняет worker для постановки follow-up задачи в очередь.
+	UserID string
+	// OnFollowUpEnqueue вызывается после успешного краула (Katana/ZAP), если в конфиге nucleiFollowUp.enabled.
+	OnFollowUpEnqueue func(FollowUpEnqueueRequest) error
 }
 
 // CreateQueued writes config and job in QUEUED state (REST create flow).
@@ -98,15 +104,15 @@ func ExecuteWithProgress(workDir, jobID string, skipZAP bool, on ProgressSink) e
 	skipNuclei := os.Getenv("DAST_SKIP_NUCLEI_CLI") == "1"
 	skipKatana := os.Getenv("DAST_SKIP_KATANA_CLI") == "1"
 	_, err = runPipeline(Options{
-		WorkDir:        workDir,
-		ConfigYAML:     data,
-		Config:         cfg,
-		SkipZAPDocker:  skipZAP,
-		SkipNucleiCLI:  skipNuclei,
-		SkipKatanaCLI:  skipKatana,
-		JobID:          jobID,
-		ConfigFileDir:  cfgDir,
-		OnProgress:     on,
+		WorkDir:       workDir,
+		ConfigYAML:    data,
+		Config:        cfg,
+		SkipZAPDocker: skipZAP,
+		SkipNucleiCLI: skipNuclei,
+		SkipKatanaCLI: skipKatana,
+		JobID:         jobID,
+		ConfigFileDir: cfgDir,
+		OnProgress:    on,
 	})
 	return err
 }
@@ -232,6 +238,11 @@ func runPipeline(opt Options) (string, error) {
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
+	if cfg != nil && cfg.InsecureSkipTLSVerify {
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = tr
+	}
 	httpClient.Transport = authTransport(httpClient.Transport, authRes.HeaderInject, authRes.CookieHeader)
 
 	var rawFindings []model.Finding
@@ -245,6 +256,9 @@ func runPipeline(opt Options) (string, error) {
 
 	discoveryFeedSeen := make(map[string]struct{})
 	var discoveryFeed []string
+	// Track feed position consumed by previous Nuclei step to avoid rescanning the same large target set.
+	lastNucleiFeedIdx := 0
+	nucleiRuns := 0
 
 	var wantDiscoveryFeed, haveDiscovery bool
 	nucleiWithFeedIdx := -1
@@ -318,6 +332,16 @@ func runPipeline(opt Options) (string, error) {
 			var hdr []string
 			for k, v := range authRes.HeaderInject {
 				hdr = append(hdr, fmt.Sprintf("%s: %s", k, v))
+			}
+			if len(hdr) == 0 && cfg.Auth != nil {
+				emit(opt, jobID, "warn", "Katana: нет Authorization/Cookie для цели — обход только того, что отдаёт сайт без сессии (часто мало URL)")
+			} else if len(hdr) > 0 {
+				keys := make([]string, 0, len(authRes.HeaderInject))
+				for k := range authRes.HeaderInject {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				emit(opt, jobID, "info", "Katana: для запросов передаются заголовки: "+strings.Join(keys, ", "))
 			}
 			if strings.TrimSpace(os.Getenv("DAST_KATANA_DOCKER_IMAGE")) != "" {
 				emit(opt, jobID, "info", "Katana: Docker mode ("+strings.TrimSpace(os.Getenv("DAST_KATANA_DOCKER_IMAGE"))+")")
@@ -428,7 +452,8 @@ func runPipeline(opt Options) (string, error) {
 					emit(opt, jobID, "info", "Nuclei CLI: skipped (-skip-nuclei or DAST_SKIP_NUCLEI_CLI=1)")
 					break
 				}
-				exist := existingPaths(paths)
+				withOfficial := mergeOfficialNucleiDirs(paths)
+				exist := existingPaths(withOfficial)
 				if payloads.SQLiEnabled() {
 					sqliAbs := payloads.SQLiPath(jobRoot)
 					if _, err := os.Stat(sqliAbs); err == nil {
@@ -458,26 +483,71 @@ func runPipeline(opt Options) (string, error) {
 						bases = append(bases, u)
 					}
 				}
-				if stepCfg.NucleiIncludeDiscoveredURLs {
-					if len(discoveryFeed) == 0 {
-						emit(opt, jobID, "warn", "Nuclei: nucleiIncludeDiscoveredURLs is set but URL feed is empty (put Katana/ZAP before Nuclei in the plan)")
-					} else {
-						emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: added feed URLs to targets (feed size %d, scope/budget limits apply)", len(discoveryFeed)))
+				var listPath string
+				var werr error
+				if lf := strings.TrimSpace(stepCfg.NucleiListFile); lf != "" {
+					listPath = resolveNucleiListFilePath(opt.WorkDir, jobID, lf)
+					fi, statErr := os.Stat(listPath)
+					if statErr != nil {
+						st.Status = model.StepFailed
+						st.Error = fmt.Sprintf("nuclei list file %q: %v", listPath, statErr)
+						emit(opt, jobID, "error", "Nuclei CLI: "+st.Error)
+						break
 					}
+					if fi.Size() == 0 {
+						st.Status = model.StepFailed
+						st.Error = fmt.Sprintf("nuclei list file empty: %s", listPath)
+						emit(opt, jobID, "error", "Nuclei CLI: "+st.Error)
+						break
+					}
+					emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: targets из файла %s (%d bytes)", filepath.Base(listPath), fi.Size()))
+				} else {
+					targetLines := []string{}
+					if stepCfg.NucleiIncludeDiscoveredURLs {
+						if len(discoveryFeed) == 0 {
+							emit(opt, jobID, "warn", "Nuclei: nucleiIncludeDiscoveredURLs is set but URL feed is empty (put Katana/ZAP before Nuclei in the plan)")
+							targetLines = nucleiCLITargetLines(cfg, bases, nil, false)
+						} else if nucleiRuns > 0 {
+							if len(discoveryFeed) <= lastNucleiFeedIdx {
+								st.Status = model.StepSkipped
+								emit(opt, jobID, "info", "Nuclei CLI: skip — после предыдущего Nuclei нет новых URL в discovery feed")
+								break
+							}
+							deltaFeed := discoveryFeed[lastNucleiFeedIdx:]
+							emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: delta mode, new feed URLs %d (only new URLs after previous Nuclei)", len(deltaFeed)))
+							// For repeated Nuclei runs scan only delta URLs to avoid heavy duplicate pass and OOM kills.
+							targetLines = nucleiCLITargetLines(cfg, nil, deltaFeed, true)
+						} else {
+							emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: added feed URLs to targets (feed size %d, scope/budget limits apply)", len(discoveryFeed)))
+							targetLines = nucleiCLITargetLines(cfg, bases, discoveryFeed, true)
+						}
+					} else {
+						targetLines = nucleiCLITargetLines(cfg, bases, nil, false)
+					}
+					listPath, werr = writeNucleiTargetsFile(opt.WorkDir, jobID, targetLines)
+					if werr != nil {
+						st.Status = model.StepFailed
+						st.Error = werr.Error()
+						emit(opt, jobID, "error", "Nuclei CLI: "+st.Error)
+						break
+					}
+					emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: %d targets (file %s)", len(targetLines), filepath.Base(listPath)))
 				}
-				targetLines := nucleiCLITargetLines(cfg, bases, discoveryFeed, stepCfg.NucleiIncludeDiscoveredURLs)
-				listPath, werr := writeNucleiTargetsFile(opt.WorkDir, jobID, targetLines)
-				if werr != nil {
-					st.Status = model.StepFailed
-					st.Error = werr.Error()
-					emit(opt, jobID, "error", "Nuclei CLI: "+st.Error)
-					break
-				}
-				emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: %d targets (file %s)", len(targetLines), filepath.Base(listPath)))
 				var hdr []string
 				for k, v := range authRes.HeaderInject {
 					hdr = append(hdr, fmt.Sprintf("%s: %s", k, v))
 				}
+				if len(hdr) == 0 && cfg.Auth != nil {
+					emit(opt, jobID, "warn", "Nuclei CLI: без заголовков авторизации к цели")
+				} else if len(hdr) > 0 {
+					keys := make([]string, 0, len(authRes.HeaderInject))
+					for k := range authRes.HeaderInject {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+					emit(opt, jobID, "info", "Nuclei CLI: заголовки: "+strings.Join(keys, ", "))
+				}
+				emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: шаблонов (путей -t): %d", len(exist)))
 				emit(opt, jobID, "info", "Nuclei CLI (projectdiscovery/nuclei, -jsonl, -l targets)")
 				nf, ne, nerr := nuclei.RunCLI(nuclei.CLIOptions{
 					ListFile:      listPath,
@@ -503,6 +573,10 @@ func runPipeline(opt Options) (string, error) {
 					st.Metrics.FindingsRaw = len(nf)
 					st.Status = model.StepSucceeded
 				}
+				if stepCfg.NucleiIncludeDiscoveredURLs {
+					lastNucleiFeedIdx = len(discoveryFeed)
+				}
+				nucleiRuns++
 				break
 			}
 			tpls, terr := nuclei.LoadTemplates(paths)
@@ -556,6 +630,44 @@ func runPipeline(opt Options) (string, error) {
 		for _, e := range de {
 			evidenceList = append(evidenceList, e)
 			evidenceByID[e.EvidenceID] = e
+		}
+	}
+
+	if shouldEnqueueNucleiFollowUp(cfg, opt) {
+		lines := collectNucleiSeedLines(cfg, discoveryFeed)
+		seedPath, werr := writeNucleiKatanaSeedsFile(opt.WorkDir, jobID, lines)
+		if werr != nil {
+			emit(opt, jobID, "warn", "nuclei follow-up: не удалось записать URL: "+werr.Error())
+		} else {
+			emit(opt, jobID, "info", fmt.Sprintf("nuclei follow-up: сохранено %d URL в %s", len(lines), filepath.Base(seedPath)))
+			followID := uuid.NewString()
+			yamlBytes, ferr := buildNucleiFollowUpYAML(cfg, seedPath, followID)
+			if ferr != nil {
+				emit(opt, jobID, "warn", "nuclei follow-up: сборка YAML: "+ferr.Error())
+			} else {
+				hash := storage.ConfigHashSHA256(yamlBytes)
+				parentTarget := ""
+				if len(cfg.Targets) > 0 {
+					parentTarget = strings.TrimSpace(cfg.Targets[0].BaseURL)
+				}
+				display := parentTarget + " [Nuclei]"
+				req := FollowUpEnqueueRequest{
+					JobID:      followID,
+					UserID:     strings.TrimSpace(opt.UserID),
+					TargetURL:  display,
+					ConfigYAML: yamlBytes,
+					ConfigHash: hash,
+				}
+				if req.UserID == "" {
+					emit(opt, jobID, "warn", "nuclei follow-up: userId пуст — задача в очередь не ставится")
+				} else if opt.OnFollowUpEnqueue == nil {
+					emit(opt, jobID, "warn", "nuclei follow-up: колбэк очереди не задан")
+				} else if err := opt.OnFollowUpEnqueue(req); err != nil {
+					emit(opt, jobID, "error", "nuclei follow-up: очередь: "+err.Error())
+				} else {
+					emit(opt, jobID, "info", "nuclei follow-up: в очереди отдельная задача jobId="+followID)
+				}
+			}
 		}
 	}
 
@@ -627,7 +739,6 @@ func runPipeline(opt Options) (string, error) {
 	_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "info", "msg": "job finished", "status": string(job.Status)})
 	return jobID, nil
 }
-
 
 func finishJob(workDir string, job *model.Job) {
 	t := time.Now().UTC()
@@ -743,7 +854,7 @@ func dummyBundle(ctxID string) ([]model.Finding, []model.Evidence) {
 			ContextID:  ctxID,
 			Payload: model.HTTPRequestResponsePayload{
 				Method:     "GET",
-				URL:      "https://example.invalid/robots.txt",
+				URL:        "https://example.invalid/robots.txt",
 				StatusCode: 200,
 			},
 		},
@@ -829,6 +940,9 @@ func katanaOptsFromStep(cfg *config.ScanAsCode, step config.ScanStep, seeds, hea
 	} else if cfg.Budgets.Discovery.DurationCrawlSecs > 0 {
 		o.CrawlDuration = fmt.Sprintf("%ds", cfg.Budgets.Discovery.DurationCrawlSecs)
 	}
+	if cfg.Budgets.Discovery.MaxURLs > 0 {
+		o.MaxURLs = cfg.Budgets.Discovery.MaxURLs
+	}
 	for _, re := range cfg.Scope.Allow {
 		re = strings.TrimSpace(re)
 		if re != "" {
@@ -865,6 +979,32 @@ func existingPaths(paths []string) []string {
 func pathExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// mergeOfficialNucleiDirs добавляет каталог из DAST_NUCLEI_TEMPLATES_DIR и /opt/nuclei-templates (Docker),
+// чтобы UI-сканы находили community-шаблоны даже при кастомном YAML.
+func mergeOfficialNucleiDirs(in []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	for _, p := range in {
+		add(p)
+	}
+	if v := strings.TrimSpace(os.Getenv("DAST_NUCLEI_TEMPLATES_DIR")); v != "" {
+		add(v)
+	}
+	add("/opt/nuclei-templates")
+	return out
 }
 
 func resolveTemplatePaths(configDir string, paths []string, workDir string) []string {
@@ -927,14 +1067,19 @@ func extractEndpoint(e model.Evidence) string {
 	if rawURL == "" {
 		return ""
 	}
-	_, err := parseURL(rawURL)
+	u, err := parseURL(rawURL)
 	if err != nil {
 		return ""
 	}
 	if isAttackPayloadURL(rawURL) {
 		return ""
 	}
-	return rawURL
+	u.RawQuery = ""
+	u.Fragment = ""
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return u.String()
 }
 
 func isAttackPayloadURL(rawURL string) bool {
@@ -985,6 +1130,37 @@ func isAttackPayloadURL(rawURL string) bool {
 			if strings.Contains(q, pat) {
 				return true
 			}
+		}
+	}
+	// Heuristic for generated active payload seeds (?q=... / ?x=...) that pollute endpoint list.
+	qs, _ := url.ParseQuery(u.RawQuery)
+	for key, vals := range qs {
+		k := strings.ToLower(strings.TrimSpace(key))
+		if k != "q" && k != "x" {
+			continue
+		}
+		for _, v := range vals {
+			v = strings.ToLower(strings.TrimSpace(v))
+			if v == "" {
+				continue
+			}
+			if strings.Contains(v, "<script") || strings.Contains(v, "javascript:") || strings.Contains(v, "onerror=") {
+				return true
+			}
+			if strings.Contains(v, "--") || strings.Contains(v, ";") || strings.Contains(v, "'") {
+				if containsAny(v, " union ", " select ", " insert ", " update ", " delete ", " drop ", " truncate ", " grant ", " declare ", " exec ", " xp_", " sp_", " waitfor ", " benchmark(", " sleep(") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func containsAny(s string, needles ...string) bool {
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return true
 		}
 	}
 	return false

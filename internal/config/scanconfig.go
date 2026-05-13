@@ -2,16 +2,29 @@ package config
 
 // ScanAsCode root document (YAML/JSON).
 type ScanAsCode struct {
-	Version string    `yaml:"version" json:"version"`
-	Job     JobMeta   `yaml:"job" json:"job"`
-	Targets []Target  `yaml:"targets" json:"targets"`
-	Scope   Scope     `yaml:"scope" json:"scope"`
-	Auth    *Auth     `yaml:"auth,omitempty" json:"auth,omitempty"`
-	Scan    Scan      `yaml:"scan" json:"scan"`
-	Budgets Budgets   `yaml:"budgets" json:"budgets"`
-	Noise   NoiseControl `yaml:"noiseControl" json:"noiseControl"`
-	Outputs Outputs   `yaml:"outputs" json:"outputs"`
-	Execution *Execution `yaml:"execution,omitempty" json:"execution,omitempty"`
+	Version   string       `yaml:"version" json:"version"`
+	Job       JobMeta      `yaml:"job" json:"job"`
+	Targets   []Target     `yaml:"targets" json:"targets"`
+	Scope     Scope        `yaml:"scope" json:"scope"`
+	Auth      *Auth        `yaml:"auth,omitempty" json:"auth,omitempty"`
+	Scan      Scan         `yaml:"scan" json:"scan"`
+	Budgets   Budgets      `yaml:"budgets" json:"budgets"`
+	Noise     NoiseControl `yaml:"noiseControl" json:"noiseControl"`
+	Outputs   Outputs      `yaml:"outputs" json:"outputs"`
+	Execution *Execution   `yaml:"execution,omitempty" json:"execution,omitempty"`
+	// InsecureSkipTLSVerify allows TLS auth and workers to reach targets with invalid certs (self-signed).
+	InsecureSkipTLSVerify bool `yaml:"insecureSkipTlsVerify,omitempty" json:"insecureSkipTlsVerify,omitempty"`
+	// NucleiFollowUp: после Katana/ZAP поставить в очередь отдельную задачу только с Nuclei по собранным URL (см. nucleiListFile в шаге).
+	NucleiFollowUp *NucleiFollowUp `yaml:"nucleiFollowUp,omitempty" json:"nucleiFollowUp,omitempty"`
+}
+
+// NucleiFollowUp настраивает вторую задачу воркера с Nuclei CLI по URL из файла (результат Katana/ZAP).
+type NucleiFollowUp struct {
+	Enabled         bool     `yaml:"enabled" json:"enabled"`
+	TemplatePaths   []string `yaml:"templatePaths,omitempty" json:"templatePaths,omitempty"`
+	NucleiEngine    string   `yaml:"nucleiEngine,omitempty" json:"nucleiEngine,omitempty"`
+	NucleiExtraArgs []string `yaml:"nucleiExtraArgs,omitempty" json:"nucleiExtraArgs,omitempty"`
+	NucleiRateLimit int      `yaml:"nucleiRateLimit,omitempty" json:"nucleiRateLimit,omitempty"`
 }
 
 type JobMeta struct {
@@ -20,11 +33,11 @@ type JobMeta struct {
 }
 
 type Target struct {
-	Type         string   `yaml:"type" json:"type"`
-	BaseURL      string   `yaml:"baseUrl" json:"baseUrl"`
-	StartPoints  []string `yaml:"startPoints,omitempty" json:"startPoints,omitempty"`
-	ExcludeURLs  []string `yaml:"excludeUrls,omitempty" json:"excludeUrls,omitempty"`
-	IncludeURLs  []string `yaml:"includeUrls,omitempty" json:"includeUrls,omitempty"`
+	Type        string   `yaml:"type" json:"type"`
+	BaseURL     string   `yaml:"baseUrl" json:"baseUrl"`
+	StartPoints []string `yaml:"startPoints,omitempty" json:"startPoints,omitempty"`
+	ExcludeURLs []string `yaml:"excludeUrls,omitempty" json:"excludeUrls,omitempty"`
+	IncludeURLs []string `yaml:"includeUrls,omitempty" json:"includeUrls,omitempty"`
 }
 
 type Scope struct {
@@ -34,18 +47,18 @@ type Scope struct {
 }
 
 type Auth struct {
-	Strategy  string          `yaml:"strategy" json:"strategy"`
-	Providers []AuthProvider  `yaml:"providers,omitempty" json:"providers,omitempty"`
+	Strategy  string         `yaml:"strategy" json:"strategy"`
+	Providers []AuthProvider `yaml:"providers,omitempty" json:"providers,omitempty"`
 }
 
 type AuthProvider struct {
-	Type       string            `yaml:"type" json:"type"`
-	ID         string            `yaml:"id" json:"id"`
-	SecretsRef map[string]string `yaml:"secretsRef,omitempty" json:"secretsRef,omitempty"`
-	Config     map[string]string `yaml:"config,omitempty" json:"config,omitempty"`
-	GenericLogin *GenericLoginConfig `yaml:"genericLogin,omitempty" json:"genericLogin,omitempty"`
+	Type              string                 `yaml:"type" json:"type"`
+	ID                string                 `yaml:"id" json:"id"`
+	SecretsRef        map[string]string      `yaml:"secretsRef,omitempty" json:"secretsRef,omitempty"`
+	Config            map[string]string      `yaml:"config,omitempty" json:"config,omitempty"`
+	GenericLogin      *GenericLoginConfig    `yaml:"genericLogin,omitempty" json:"genericLogin,omitempty"`
 	InteractiveInputs []AuthInteractiveInput `yaml:"interactiveInputs,omitempty" json:"interactiveInputs,omitempty"`
-	Verification *AuthVerification `yaml:"verification,omitempty" json:"verification,omitempty"`
+	Verification      *AuthVerification      `yaml:"verification,omitempty" json:"verification,omitempty"`
 }
 
 type AuthVerification struct {
@@ -62,9 +75,9 @@ type AuthInteractiveInput struct {
 
 // GenericLoginConfig describes universal auth flow without product-specific provider.
 type GenericLoginConfig struct {
-	LoginURL     string `yaml:"loginUrl" json:"loginUrl"`
-	LoginMethod  string `yaml:"loginMethod,omitempty" json:"loginMethod,omitempty"`
-	ContentType  string `yaml:"contentType,omitempty" json:"contentType,omitempty"` // application/json | application/x-www-form-urlencoded
+	LoginURL    string `yaml:"loginUrl" json:"loginUrl"`
+	LoginMethod string `yaml:"loginMethod,omitempty" json:"loginMethod,omitempty"`
+	ContentType string `yaml:"contentType,omitempty" json:"contentType,omitempty"` // application/json | application/x-www-form-urlencoded
 	// CredentialFields maps secretsRef keys to request field names.
 	// Example: {"email":"username","password":"password"}.
 	CredentialFields map[string]string `yaml:"credentialFields,omitempty" json:"credentialFields,omitempty"`
@@ -77,8 +90,8 @@ type GenericLoginConfig struct {
 	TokenType       string   `yaml:"tokenType,omitempty" json:"tokenType,omitempty"`             // default: Bearer
 	TokenHeaderName string   `yaml:"tokenHeaderName,omitempty" json:"tokenHeaderName,omitempty"` // default: Authorization
 
-	// Session verification.
-	VerifyURL            string `yaml:"verifyUrl" json:"verifyUrl"`
+	// Session verification (optional: omit or leave empty to trust login response only).
+	VerifyURL            string `yaml:"verifyUrl,omitempty" json:"verifyUrl,omitempty"`
 	VerifyMethod         string `yaml:"verifyMethod,omitempty" json:"verifyMethod,omitempty"`                 // default: GET
 	VerifyExpectedStatus int    `yaml:"verifyExpectedStatus,omitempty" json:"verifyExpectedStatus,omitempty"` // default: 200
 	UseCookies           bool   `yaml:"useCookies,omitempty" json:"useCookies,omitempty"`                     // when true use Set-Cookie fallback
@@ -102,6 +115,8 @@ type ScanStep struct {
 	NucleiRateLimit int      `yaml:"nucleiRateLimit,omitempty" json:"nucleiRateLimit,omitempty"`
 	// NucleiIncludeDiscoveredURLs — добавить к целям Nuclei URL из предыдущих шагов Katana/ZAP (HTTP evidence).
 	NucleiIncludeDiscoveredURLs bool `yaml:"nucleiIncludeDiscoveredURLs,omitempty" json:"nucleiIncludeDiscoveredURLs,omitempty"`
+	// NucleiListFile — абсолютный или относительно каталога job путь к файлу URL (по одному в строке); для nuclei -l.
+	NucleiListFile string `yaml:"nucleiListFile,omitempty" json:"nucleiListFile,omitempty"`
 	// ZAP: optional docker image override
 	ZAPDockerImage string `yaml:"zapDockerImage,omitempty" json:"zapDockerImage,omitempty"`
 	// ZAP Automation Framework (zap.sh -autorun): spider + optional Ajax Spider, passive wait, JSON report.
@@ -133,13 +148,13 @@ type Budgets struct {
 }
 
 type DiscoveryBudget struct {
-	MaxDepth           int `yaml:"maxDepth" json:"maxDepth"`
-	MaxURLs            int `yaml:"maxUrls" json:"maxUrls"`
-	DurationCrawlSecs  int `yaml:"durationCrawlSecs" json:"durationCrawlSecs"`
+	MaxDepth          int `yaml:"maxDepth" json:"maxDepth"`
+	MaxURLs           int `yaml:"maxUrls" json:"maxUrls"`
+	DurationCrawlSecs int `yaml:"durationCrawlSecs" json:"durationCrawlSecs"`
 }
 
 type PassiveBudget struct {
-	PassiveWaitDelaySecs      int    `yaml:"passiveWaitDelaySecs" json:"passiveWaitDelaySecs"`
+	PassiveWaitDelaySecs       int    `yaml:"passiveWaitDelaySecs" json:"passiveWaitDelaySecs"`
 	PassiveRuleDefaultSeverity string `yaml:"passiveRuleDefaultSeverity" json:"passiveRuleDefaultSeverity"`
 }
 
@@ -157,14 +172,14 @@ type VerificationBudget struct {
 }
 
 type NoiseControl struct {
-	Dedupe DedupeConfig `yaml:"dedupe" json:"dedupe"`
-	Suppression SuppressionConfig `yaml:"suppression" json:"suppression"`
+	Dedupe        DedupeConfig          `yaml:"dedupe" json:"dedupe"`
+	Suppression   SuppressionConfig     `yaml:"suppression" json:"suppression"`
 	FalsePositive FalsePositiveWorkflow `yaml:"falsePositiveWorkflow" json:"falsePositiveWorkflow"`
 }
 
 type DedupeConfig struct {
-	LocationKey         string `yaml:"locationKey" json:"locationKey"`
-	ParamNormalization  string `yaml:"paramNormalization" json:"paramNormalization"`
+	LocationKey        string `yaml:"locationKey" json:"locationKey"`
+	ParamNormalization string `yaml:"paramNormalization" json:"paramNormalization"`
 }
 
 type SuppressionConfig struct {
@@ -173,12 +188,12 @@ type SuppressionConfig struct {
 }
 
 type SuppressionRule struct {
-	RuleID   string `yaml:"ruleId,omitempty" json:"ruleId,omitempty"`
-	Category string `yaml:"category,omitempty" json:"category,omitempty"`
-	Severity string `yaml:"severity,omitempty" json:"severity,omitempty"`
-	Endpoint string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	RuleID      string `yaml:"ruleId,omitempty" json:"ruleId,omitempty"`
+	Category    string `yaml:"category,omitempty" json:"category,omitempty"`
+	Severity    string `yaml:"severity,omitempty" json:"severity,omitempty"`
+	Endpoint    string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
 	LocationKey string `yaml:"locationKey,omitempty" json:"locationKey,omitempty"`
-	Reason   string `yaml:"reason,omitempty" json:"reason,omitempty"`
+	Reason      string `yaml:"reason,omitempty" json:"reason,omitempty"`
 }
 
 type FalsePositiveWorkflow struct {
@@ -187,15 +202,15 @@ type FalsePositiveWorkflow struct {
 }
 
 type Outputs struct {
-	Formats []string   `yaml:"formats" json:"formats"`
-	Docx    *DocxOut   `yaml:"docx,omitempty" json:"docx,omitempty"`
-	IncludeEvidence *bool `yaml:"includeEvidence,omitempty" json:"includeEvidence,omitempty"`
-	Paths   OutputPaths `yaml:"paths" json:"paths"`
+	Formats         []string    `yaml:"formats" json:"formats"`
+	Docx            *DocxOut    `yaml:"docx,omitempty" json:"docx,omitempty"`
+	IncludeEvidence *bool       `yaml:"includeEvidence,omitempty" json:"includeEvidence,omitempty"`
+	Paths           OutputPaths `yaml:"paths" json:"paths"`
 }
 
 type DocxOut struct {
-	TemplateRef    string `yaml:"templateRef,omitempty" json:"templateRef,omitempty"`
-	IncludeEvidence bool  `yaml:"includeEvidence" json:"includeEvidence"`
+	TemplateRef     string `yaml:"templateRef,omitempty" json:"templateRef,omitempty"`
+	IncludeEvidence bool   `yaml:"includeEvidence" json:"includeEvidence"`
 }
 
 type OutputPaths struct {
@@ -203,9 +218,9 @@ type OutputPaths struct {
 }
 
 type Execution struct {
-	Retries         int  `yaml:"retries,omitempty" json:"retries,omitempty"`
-	TimeoutJobSecs  int  `yaml:"timeoutJobSecs,omitempty" json:"timeoutJobSecs,omitempty"`
-	DummyFindings   bool `yaml:"dummyFindings,omitempty" json:"dummyFindings,omitempty"`
+	Retries        int  `yaml:"retries,omitempty" json:"retries,omitempty"`
+	TimeoutJobSecs int  `yaml:"timeoutJobSecs,omitempty" json:"timeoutJobSecs,omitempty"`
+	DummyFindings  bool `yaml:"dummyFindings,omitempty" json:"dummyFindings,omitempty"`
 }
 
 // DefaultScanAsCode returns minimal valid defaults for missing sections.
@@ -261,9 +276,9 @@ func (c *ScanAsCode) EffectiveVerifyOnlyNewOrChanged() bool {
 
 func DefaultBudgets() Budgets {
 	return Budgets{
-		Discovery: DiscoveryBudget{MaxDepth: 2, MaxURLs: 100, DurationCrawlSecs: 60},
-		Passive:   PassiveBudget{PassiveWaitDelaySecs: 10, PassiveRuleDefaultSeverity: "WARN"},
-		Active:    ActiveBudget{MaxRequestsTotal: 100, MaxRequestsPerEndpoint: 10, MaxPayloadsPerRule: 5, Concurrency: 2, RateLimitRps: 5},
+		Discovery:    DiscoveryBudget{MaxDepth: 2, MaxURLs: 100, DurationCrawlSecs: 60},
+		Passive:      PassiveBudget{PassiveWaitDelaySecs: 10, PassiveRuleDefaultSeverity: "WARN"},
+		Active:       ActiveBudget{MaxRequestsTotal: 100, MaxRequestsPerEndpoint: 10, MaxPayloadsPerRule: 5, Concurrency: 2, RateLimitRps: 5},
 		Verification: VerificationBudget{MaxVerifications: 50, EvidenceThreshold: "low"},
 	}
 }

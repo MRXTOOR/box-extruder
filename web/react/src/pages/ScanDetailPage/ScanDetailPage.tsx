@@ -13,6 +13,7 @@ const statusLabels: Record<ScanStatus, string> = {
   WAITING_FOR_AUTH: 'Ожидание авторизации',
   PENDING: 'Приостановлен',
   CANCELLED: 'Отменён',
+  CANCELED: 'Отменён',
 }
 
 const STEPS = ['Katana', 'ZAP Baseline', 'Nuclei']
@@ -32,9 +33,14 @@ export function ScanDetailPage() {
   const [endpointsList, setEndpointsList] = useState<string[]>([])
   const [endpointsLoading, setEndpointsLoading] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const endpointsLoadedJobIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!id) return
+    setEndpointsModalOpen(false)
+    setEndpointsList([])
+    setEndpointsLoading(false)
+    endpointsLoadedJobIdRef.current = null
     loadData()
     startPolling()
     return () => {
@@ -49,7 +55,7 @@ export function ScanDetailPage() {
         const status = await api.getScanStatus(id!)
         if (status && typeof status === 'object' && status.status) {
           setScan(prev => prev ? { ...prev, status: status.status as ScanStatus } : null)
-          if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'PARTIAL_SUCCESS'].includes(status.status)) {
+          if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'CANCELED', 'PARTIAL_SUCCESS'].includes(status.status)) {
             if (pollingRef.current) clearInterval(pollingRef.current)
           }
         }
@@ -73,6 +79,9 @@ export function ScanDetailPage() {
 
   const openEndpointsModal = async (jobId: string) => {
     setEndpointsModalOpen(true)
+    if (endpointsLoadedJobIdRef.current === jobId) {
+      return
+    }
     setEndpointsLoading(true)
     try {
       const res = await fetch(`/api/v1/scans/${jobId}/reports?format=endpoints`)
@@ -80,6 +89,7 @@ export function ScanDetailPage() {
         const text = await res.text()
         const eps = text.split('\n').filter((line: string) => line.trim() !== '')
         setEndpointsList(eps)
+        endpointsLoadedJobIdRef.current = jobId
       } else {
         setEndpointsList([])
       }
@@ -93,18 +103,22 @@ export function ScanDetailPage() {
 
   const closeEndpointsModal = () => {
     setEndpointsModalOpen(false)
-    setEndpointsList([])
   }
 
   const handleCancel = async () => {
     if (!id || canceling) return
     setCanceling(true)
+    const prevStatus = scan?.status
+    setScan(prev => prev ? { ...prev, status: 'CANCELLED' as ScanStatus } : null)
+    if (pollingRef.current) clearInterval(pollingRef.current)
     try {
       await api.cancelScan(id)
-      setScan(prev => prev ? { ...prev, status: 'CANCELLED' as ScanStatus } : null)
-      if (pollingRef.current) clearInterval(pollingRef.current)
     } catch (err) {
       console.error('Cancel error:', err)
+      if (prevStatus) {
+        setScan(prev => prev ? { ...prev, status: prevStatus } : null)
+      }
+      startPolling()
     } finally {
       setCanceling(false)
     }
@@ -120,7 +134,7 @@ export function ScanDetailPage() {
     }
   }
 
-  const isTerminal = scan?.status && ['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED'].includes(scan.status)
+  const isTerminal = scan?.status && ['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED', 'CANCELED'].includes(scan.status)
   const isRunning = scan?.status && ['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH'].includes(scan.status)
 
   const currentStep = () => {
@@ -224,25 +238,27 @@ export function ScanDetailPage() {
         </div>
       </section>
 
-      {endpointsModalOpen && (
-        <div className={styles.modalOverlay} onClick={closeEndpointsModal}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>Просканированные эндпоинты</h3>
-              <button className={styles.btnClose} onClick={closeEndpointsModal}>&times;</button>
-            </div>
-            <div className={styles.modalBody}>
-              {endpointsLoading ? (
-                <p>Загрузка...</p>
-              ) : endpointsList.length > 0 ? (
-                <pre className={styles.endpointsList}>{endpointsList.join('\n')}</pre>
-              ) : (
-                <p>Эндпоинты не найдены</p>
-              )}
-            </div>
+      <div
+        className={`${styles.modalOverlay} ${!endpointsModalOpen ? styles.modalHidden : ''}`}
+        aria-hidden={!endpointsModalOpen}
+        onClick={closeEndpointsModal}
+      >
+        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.modalHeader}>
+            <h3>Просканированные эндпоинты</h3>
+            <button type="button" className={styles.btnClose} onClick={closeEndpointsModal}>&times;</button>
+          </div>
+          <div className={styles.modalBody}>
+            {endpointsLoading ? (
+              <p>Загрузка...</p>
+            ) : endpointsList.length > 0 ? (
+              <pre className={styles.endpointsList}>{endpointsList.join('\n')}</pre>
+            ) : (
+              <p>Эндпоинты не найдены</p>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

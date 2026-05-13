@@ -14,6 +14,7 @@ const statusLabels: Record<string, string> = {
   WAITING_FOR_AUTH: '🔐 Ожидание авторизации',
   PENDING: '⏸ Приостановлен',
   CANCELLED: '🚫 Отменён',
+  CANCELED: '🚫 Отменён',
 }
 
 function getStatusClass(status: string): string {
@@ -23,6 +24,7 @@ function getStatusClass(status: string): string {
 export function ScansPage() {
   const navigate = useNavigate()
   const [scans, setScans] = useState<Scan[]>([])
+  const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [autoDetectStatus, setAutoDetectStatus] = useState<'idle' | 'pending' | 'ok' | 'fail'>('idle')
   const [currentJobStatus, setCurrentJobStatus] = useState<string>('Нет активной задачи')
@@ -89,9 +91,8 @@ export function ScansPage() {
           const kind = statusKind(statusStr)
           setCurrentJobKind(kind)
           
-          if (['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED'].includes(statusStr)) {
+          if (['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED', 'CANCELED'].includes(statusStr)) {
             if (pollingRef.current) clearInterval(pollingRef.current)
-            setAutoDetectStatus(statusStr === 'SUCCEEDED' ? 'ok' : statusStr === 'FAILED' ? 'fail' : 'idle')
           }
         } else {
           setCurrentJobStatus(typeof status === 'object' ? JSON.stringify(status, null, 2) : String(status))
@@ -107,6 +108,7 @@ export function ScansPage() {
     if (st === 'FAILED') return 'bad'
     if (st === 'PARTIAL_SUCCESS') return 'partial'
     if (st === 'QUEUED' || st === 'RUNNING') return 'run'
+    if (st === 'CANCELLED' || st === 'CANCELED') return 'partial'
     return ''
   }
 
@@ -136,6 +138,8 @@ export function ScansPage() {
     } catch (err) {
       console.error(err)
       setAutoDetectStatus('fail')
+      const msg = err instanceof Error ? err.message : String(err)
+      alert(msg)
     }
   }
 
@@ -155,7 +159,6 @@ export function ScansPage() {
 
   const closeDownloadModal = () => {
     setDownloadModalOpen(false)
-    setDownloadTargetJobId(null)
   }
 
   const handleViewEndpoints = (jobId: string) => {
@@ -168,11 +171,29 @@ export function ScansPage() {
 
   const handleCancelScan = async (jobId: string, e: React.MouseEvent) => {
     e.stopPropagation()
+    if (cancelingIds.has(jobId)) return
+    const previousStatus = scans.find(s => s.jobId === jobId || s.id === jobId)?.status
+    setCancelingIds(prev => {
+      const next = new Set(prev)
+      next.add(jobId)
+      return next
+    })
+    // Optimistic UI: show cancelled immediately without waiting for poll.
+    setScans(prev => prev.map(s => (s.jobId === jobId || s.id === jobId ? { ...s, status: 'CANCELLED' as Scan['status'] } : s)))
     try {
       await api.cancelScan(jobId)
       loadScans()
     } catch (err) {
       console.error('Cancel error:', err)
+      if (previousStatus) {
+        setScans(prev => prev.map(s => (s.jobId === jobId || s.id === jobId ? { ...s, status: previousStatus } : s)))
+      }
+    } finally {
+      setCancelingIds(prev => {
+        const next = new Set(prev)
+        next.delete(jobId)
+        return next
+      })
     }
   }
 
@@ -187,7 +208,7 @@ export function ScansPage() {
 
           <section className={styles.card}>
             <div className={styles.sectionTitleWrap}>
-              <p className={styles.cardHead}>Автодетект</p>
+              <p className={styles.cardHead}>Создание скана</p>
               <button 
                 className={`${styles.btnToggle} ${!detectOpen ? styles.collapsed : ''}`}
                 onClick={() => setDetectOpen(!detectOpen)}
@@ -197,12 +218,15 @@ export function ScansPage() {
             </div>
             {detectOpen && (
               <div className={styles.detectContent}>
+                <p className={styles.detectHint}>
+                  Статус последней попытки отправить форму выше (проверка логина к цели на сервере). Итог работы скана — в блоке «Задача».
+                </p>
                 <div className={styles.badgeRow}>
                   <span className={`${styles.badge} ${autoDetectStatus === 'idle' ? 'idle' : autoDetectStatus === 'pending' ? 'idle' : autoDetectStatus}`}>
                     <span className={styles.icon}>
                       {autoDetectStatus === 'idle' ? '○' : autoDetectStatus === 'pending' ? '…' : autoDetectStatus === 'ok' ? '✓' : '✕'}
                     </span>
-                    {autoDetectStatus === 'idle' ? 'не запускался' : autoDetectStatus === 'pending' ? 'проверка…' : autoDetectStatus === 'ok' ? 'успех' : 'не удался'}
+                    {autoDetectStatus === 'idle' ? 'ещё не отправляли' : autoDetectStatus === 'pending' ? 'отправка…' : autoDetectStatus === 'ok' ? 'принято в очередь' : 'отклонено'}
                   </span>
                 </div>
               </div>
@@ -263,13 +287,14 @@ export function ScansPage() {
                     {new Date(scan.createdAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                   </div>
                   <div className={styles.jobCardActions}>
-                    {['QUEUED', 'RUNNING'].includes(scan.status) && (
+                    {['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH'].includes(scan.status) && (
                       <button 
                         className={styles.btnJobAction}
                         onClick={(e) => handleCancelScan(scan.jobId || scan.id, e)}
+                        disabled={cancelingIds.has(scan.jobId || scan.id)}
                         title="Отменить"
                       >
-                        ⏹
+                        {cancelingIds.has(scan.jobId || scan.id) ? '…' : '⏹'}
                       </button>
                     )}
                     <button 
@@ -301,36 +326,38 @@ export function ScansPage() {
         </aside>
       </div>
 
-      {downloadModalOpen && (
-        <div className={styles.modalOverlay} onClick={closeDownloadModal}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>Скачать отчёт</h3>
-              <button className={styles.btnClose} onClick={closeDownloadModal}>&times;</button>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.downloadJobId}>#{downloadTargetJobId?.substring(0, 8)}</div>
-              <div className={styles.downloadFormats}>
-                <button className={styles.btnFormat} onClick={() => { handleDownload(downloadTargetJobId!, 'docx'); closeDownloadModal() }}>
-                  <span className={styles.formatIcon}>📝</span>
-                  <span className={styles.formatName}>Word (DOCX)</span>
-                  <span className={styles.formatDesc}>Документ Word</span>
-                </button>
-                <button className={styles.btnFormat} onClick={() => { handleDownload(downloadTargetJobId!, 'md'); closeDownloadModal() }}>
-                  <span className={styles.formatIcon}>📄</span>
-                  <span className={styles.formatName}>Markdown</span>
-                  <span className={styles.formatDesc}>.md файл</span>
-                </button>
-                <button className={styles.btnFormat} onClick={() => { handleDownload(downloadTargetJobId!, 'html'); closeDownloadModal() }}>
-                  <span className={styles.formatIcon}>🌐</span>
-                  <span className={styles.formatName}>HTML</span>
-                  <span className={styles.formatDesc}>Красивый веб-отчёт</span>
-                </button>
-              </div>
+      <div
+        className={`${styles.modalOverlay} ${!downloadModalOpen ? styles.modalHidden : ''}`}
+        aria-hidden={!downloadModalOpen}
+        onClick={closeDownloadModal}
+      >
+        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.modalHeader}>
+            <h3>Скачать отчёт</h3>
+            <button type="button" className={styles.btnClose} onClick={closeDownloadModal}>&times;</button>
+          </div>
+          <div className={styles.modalBody}>
+            <div className={styles.downloadJobId}>#{downloadTargetJobId?.substring(0, 8)}</div>
+            <div className={styles.downloadFormats}>
+              <button type="button" className={styles.btnFormat} onClick={() => { if (downloadTargetJobId) { handleDownload(downloadTargetJobId, 'docx'); closeDownloadModal() } }}>
+                <span className={styles.formatIcon}>📝</span>
+                <span className={styles.formatName}>Word (DOCX)</span>
+                <span className={styles.formatDesc}>Документ Word</span>
+              </button>
+              <button type="button" className={styles.btnFormat} onClick={() => { if (downloadTargetJobId) { handleDownload(downloadTargetJobId, 'md'); closeDownloadModal() } }}>
+                <span className={styles.formatIcon}>📄</span>
+                <span className={styles.formatName}>Markdown</span>
+                <span className={styles.formatDesc}>.md файл</span>
+              </button>
+              <button type="button" className={styles.btnFormat} onClick={() => { if (downloadTargetJobId) { handleDownload(downloadTargetJobId, 'html'); closeDownloadModal() } }}>
+                <span className={styles.formatIcon}>🌐</span>
+                <span className={styles.formatName}>HTML</span>
+                <span className={styles.formatDesc}>Красивый веб-отчёт</span>
+              </button>
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

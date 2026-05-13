@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +20,8 @@ type Request struct {
 	VerifyURL string `json:"verifyUrl,omitempty"`
 	Login     string `json:"login"`
 	Password  string `json:"password"`
+	// InsecureSkipTLSVerify mirrors curl --insecure for self-signed targets during discovery.
+	InsecureSkipTLSVerify bool `json:"insecureSkipTlsVerify,omitempty"`
 }
 
 type TraceStep struct {
@@ -30,24 +33,25 @@ type TraceStep struct {
 }
 
 type Result struct {
-	Verified         bool                     `json:"verified"`
-	VerifyStatus     int                      `json:"verifyStatus,omitempty"`
-	VerifyURL        string                   `json:"verifyUrl,omitempty"`
-	GenericLogin     *config.GenericLoginConfig `json:"genericLogin,omitempty"`
+	Verified          bool                          `json:"verified"`
+	VerifyStatus      int                           `json:"verifyStatus,omitempty"`
+	VerifyURL         string                        `json:"verifyUrl,omitempty"`
+	GenericLogin      *config.GenericLoginConfig    `json:"genericLogin,omitempty"`
 	InteractiveInputs []config.AuthInteractiveInput `json:"interactiveInputs,omitempty"`
-	Trace            []TraceStep              `json:"trace"`
-	Error            string                   `json:"error,omitempty"`
+	Trace             []TraceStep                   `json:"trace"`
+	Error             string                        `json:"error,omitempty"`
 }
 
 func Discover(req Request) Result {
-	client := &http.Client{Timeout: 15 * time.Second}
 	out := Result{
 		InteractiveInputs: []config.AuthInteractiveInput{
 			{Name: "username", Prompt: "Username / Email", Required: true},
 			{Name: "password", Prompt: "Password", Required: true, Sensitive: true},
 		},
 	}
-	base, err := normalizeBase(req.TargetURL)
+	client := newHTTPClient(req.InsecureSkipTLSVerify)
+
+	_, err := normalizeBase(req.TargetURL)
 	if err != nil {
 		out.Error = "invalid targetUrl"
 		return out
@@ -56,67 +60,104 @@ func Discover(req Request) Result {
 		out.Error = "login and password required"
 		return out
 	}
+	loginURL := strings.TrimSpace(req.AuthURL)
+	if loginURL == "" {
+		out.Error = "authUrl is required: enter the full login endpoint URL (URL auto-discovery was removed)"
+		return out
+	}
 
-	loginURLs := candidateLoginURLs(base, req.AuthURL)
-	verifyURLs := candidateVerifyURLs(base, req.VerifyURL)
+	verifyURLs := candidateVerifyURLs(strings.TrimSpace(req.VerifyURL))
 	contentTypes := []string{"application/json", "application/x-www-form-urlencoded"}
-	userFields := []string{"email", "username", "login", "user", "identifier"}
+	userFields := []string{"email", "username", "login", "user", "identifier", "phone", "mobile"}
 	passFields := []string{"password", "pass", "pwd"}
 
-	for _, loginURL := range loginURLs {
-		for _, ct := range contentTypes {
-			for _, uf := range userFields {
-				for _, pf := range passFields {
-					authHeader, cookieHeader, ok, trace := tryLogin(client, loginURL, ct, uf, pf, req.Login, req.Password)
-					out.Trace = append(out.Trace, trace...)
-					if !ok {
+	for _, ct := range contentTypes {
+		for _, uf := range userFields {
+			for _, pf := range passFields {
+				authHeader, cookieHeader, body, ok, trace := tryLogin(client, loginURL, ct, uf, pf, req.Login, req.Password)
+				out.Trace = append(out.Trace, trace...)
+				if !ok {
+					continue
+				}
+				tokenPath, _, tokenType := extractTokenWithPath(body)
+				glBase := &config.GenericLoginConfig{
+					LoginURL:             loginURL,
+					LoginMethod:          http.MethodPost,
+					ContentType:          ct,
+					CredentialFields:     map[string]string{"username": uf, "password": pf},
+					TokenHeaderName:      "Authorization",
+					VerifyMethod:         http.MethodGet,
+					VerifyExpectedStatus: http.StatusOK,
+				}
+				if authHeader == "" {
+					glBase.UseCookies = true
+				} else {
+					glBase.TokenPath = tokenPath
+					if tt := strings.TrimSpace(tokenType); tt != "" {
+						glBase.TokenType = normalizeTokenType(tt)
+					} else {
+						glBase.TokenType = "Bearer"
+					}
+				}
+
+				if len(verifyURLs) == 0 {
+					if authHeader == "" && cookieHeader == "" {
 						continue
 					}
-					for _, vURL := range verifyURLs {
-						status, verr := tryVerify(client, vURL, authHeader, cookieHeader)
-						step := TraceStep{
-							Stage:  "verify",
-							URL:    vURL,
-							Method: http.MethodGet,
-							Detail: fmt.Sprintf("status=%d", status),
-							Success: verr == nil && status == http.StatusOK,
-						}
-						if verr != nil {
-							step.Detail = verr.Error()
-						}
-						out.Trace = append(out.Trace, step)
-						if verr == nil && status == http.StatusOK {
-							gl := &config.GenericLoginConfig{
-								LoginURL:             loginURL,
-								LoginMethod:          http.MethodPost,
-								ContentType:          ct,
-								CredentialFields:     map[string]string{"username": uf, "password": pf},
-								TokenType:            "Bearer",
-								TokenHeaderName:      "Authorization",
-								VerifyURL:            vURL,
-								VerifyMethod:         http.MethodGet,
-								VerifyExpectedStatus: http.StatusOK,
-							}
-							if authHeader == "" {
-								gl.UseCookies = true
-							} else {
-								gl.TokenPath = "access_token"
-							}
-							out.Verified = true
-							out.VerifyURL = vURL
-							out.VerifyStatus = status
-							out.GenericLogin = gl
-							out.Trace = dedupeTrace(out.Trace)
-							return out
-						}
+					out.Verified = true
+					out.GenericLogin = glBase
+					out.Trace = dedupeTrace(out.Trace)
+					return out
+				}
+
+				for _, vURL := range verifyURLs {
+					status, verr := tryVerify(client, vURL, authHeader, cookieHeader)
+					step := TraceStep{
+						Stage:   "verify",
+						URL:     vURL,
+						Method:  http.MethodGet,
+						Detail:  fmt.Sprintf("status=%d", status),
+						Success: verr == nil && status == http.StatusOK,
+					}
+					if verr != nil {
+						step.Detail = verr.Error()
+					}
+					out.Trace = append(out.Trace, step)
+					if verr == nil && status == http.StatusOK {
+						gl := *glBase
+						gl.VerifyURL = vURL
+						out.Verified = true
+						out.VerifyURL = vURL
+						out.VerifyStatus = status
+						out.GenericLogin = &gl
+						out.Trace = dedupeTrace(out.Trace)
+						return out
 					}
 				}
 			}
 		}
 	}
-	out.Error = "unable to auto-discover auth flow"
+	out.Error = "unable to complete auth with the given authUrl (check credentials, content type, field names, or set verifyUrl)"
 	out.Trace = dedupeTrace(out.Trace)
 	return out
+}
+
+func newHTTPClient(insecure bool) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure}
+	return &http.Client{Timeout: 30 * time.Second, Transport: tr}
+}
+
+func normalizeTokenType(tt string) string {
+	tt = strings.TrimSpace(tt)
+	if tt == "" {
+		return "Bearer"
+	}
+	// JSON token_type is often "Bearer"; header uses same word without duplication in engine.
+	if strings.EqualFold(tt, "bearer") {
+		return "Bearer"
+	}
+	return tt
 }
 
 func dedupeTrace(steps []TraceStep) []TraceStep {
@@ -133,7 +174,8 @@ func dedupeTrace(steps []TraceStep) []TraceStep {
 	return out
 }
 
-func tryLogin(client *http.Client, loginURL, contentType, userField, passField, login, password string) (string, string, bool, []TraceStep) {
+// tryLogin returns auth Bearer header (if JSON token found), Set-Cookie aggregate, response body on 2xx.
+func tryLogin(client *http.Client, loginURL, contentType, userField, passField, login, password string) (string, string, []byte, bool, []TraceStep) {
 	reqFields := map[string]string{userField: login, passField: password}
 	var body io.Reader
 	switch contentType {
@@ -149,34 +191,43 @@ func tryLogin(client *http.Client, loginURL, contentType, userField, passField, 
 	}
 	r, err := http.NewRequest(http.MethodPost, loginURL, body)
 	if err != nil {
-		return "", "", false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: err.Error(), Success: false}}
+		return "", "", nil, false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: err.Error(), Success: false}}
 	}
 	r.Header.Set("Content-Type", contentType)
+	r.Header.Set("User-Agent", "AppSec-DAST-auth-discovery/1.0")
 	resp, err := client.Do(r)
 	if err != nil || resp == nil {
 		msg := "request failed"
 		if err != nil {
 			msg = err.Error()
 		}
-		return "", "", false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: msg, Success: false}}
+		return "", "", nil, false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: msg, Success: false}}
 	}
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: fmt.Sprintf("status=%d", resp.StatusCode), Success: false}}
+		return "", "", nil, false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: fmt.Sprintf("status=%d", resp.StatusCode), Success: false}}
 	}
-	token := extractToken(data)
+	tokenPath, token, tokenType := extractTokenWithPath(data)
 	authHeader := ""
 	if token != "" {
-		authHeader = "Bearer " + token
+		tt := strings.TrimSpace(tokenType)
+		if tt == "" || strings.EqualFold(tt, "bearer") {
+			authHeader = "Bearer " + token
+		} else {
+			authHeader = strings.TrimSpace(tt + " " + token)
+		}
 	}
 	cookieHeader := collectSetCookieHeader(resp)
 	ok := authHeader != "" || cookieHeader != ""
-	detail := fmt.Sprintf("status=%d token=%v cookie=%v", resp.StatusCode, authHeader != "", cookieHeader != "")
-	return authHeader, cookieHeader, ok, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: detail, Success: ok}}
+	detail := fmt.Sprintf("status=%d token=%v cookie=%v path=%q", resp.StatusCode, authHeader != "", cookieHeader != "", tokenPath)
+	return authHeader, cookieHeader, data, ok, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: detail, Success: ok}}
 }
 
 func tryVerify(client *http.Client, verifyURL, authHeader, cookieHeader string) (int, error) {
+	if strings.TrimSpace(verifyURL) == "" {
+		return 0, fmt.Errorf("empty verify url")
+	}
 	req, err := http.NewRequest(http.MethodGet, verifyURL, nil)
 	if err != nil {
 		return 0, err
@@ -187,6 +238,7 @@ func tryVerify(client *http.Client, verifyURL, authHeader, cookieHeader string) 
 	if cookieHeader != "" {
 		req.Header.Set("Cookie", cookieHeader)
 	}
+	req.Header.Set("User-Agent", "AppSec-DAST-auth-discovery/1.0")
 	resp, err := client.Do(req)
 	if err != nil || resp == nil {
 		return 0, err
@@ -196,30 +248,12 @@ func tryVerify(client *http.Client, verifyURL, authHeader, cookieHeader string) 
 	return resp.StatusCode, nil
 }
 
-func candidateLoginURLs(base, authURL string) []string {
-	if strings.TrimSpace(authURL) != "" {
-		return []string{strings.TrimSpace(authURL)}
+// candidateVerifyURLs returns explicit verify URL only; empty input means caller skips HTTP verify after login.
+func candidateVerifyURLs(verifyURL string) []string {
+	if strings.TrimSpace(verifyURL) == "" {
+		return nil
 	}
-	return []string{
-		base + "/api/auth/login",
-		base + "/auth/login",
-		base + "/api/login",
-		base + "/login",
-		base + "/api/v1/auth/login",
-	}
-}
-
-func candidateVerifyURLs(base, verifyURL string) []string {
-	if strings.TrimSpace(verifyURL) != "" {
-		return []string{strings.TrimSpace(verifyURL)}
-	}
-	return []string{
-		base + "/api/me",
-		base + "/me",
-		base + "/userinfo",
-		base + "/profile",
-		base + "/api/v1/profile",
-	}
+	return []string{strings.TrimSpace(verifyURL)}
 }
 
 func normalizeBase(raw string) (string, error) {
@@ -230,15 +264,44 @@ func normalizeBase(raw string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
-func extractToken(data []byte) string {
+func extractTokenWithPath(data []byte) (path string, token string, tokenType string) {
 	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil {
+		return "", "", ""
+	}
+	tokenType = readTokenType(m)
+	candidates := []string{
+		"access_token", "accessToken", "id_token", "idToken",
+		"data.access_token", "data.accessToken", "data.token",
+		"token", "authentication.token", "jwt", "result.token",
+		"result.access_token", "credentials.accessToken", "auth.token",
+	}
+	for _, p := range candidates {
+		if v := dig(m, p); v != "" && !strings.Contains(strings.ToLower(p), "refresh") {
+			return p, v, tokenType
+		}
+	}
+	for k, v := range m {
+		lk := strings.ToLower(strings.TrimSpace(k))
+		if strings.Contains(lk, "refresh") {
+			continue
+		}
+		if !(strings.Contains(lk, "token") || lk == "jwt") {
+			continue
+		}
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return k, strings.TrimSpace(s), tokenType
+		}
+	}
+	return "", "", tokenType
+}
+
+func readTokenType(m map[string]any) string {
+	if m == nil {
 		return ""
 	}
-	for _, p := range []string{"access_token", "token", "data.token", "authentication.token"} {
-		if v := dig(m, p); v != "" {
-			return v
-		}
+	if s, ok := m["token_type"].(string); ok && strings.TrimSpace(s) != "" {
+		return strings.TrimSpace(s)
 	}
 	return ""
 }

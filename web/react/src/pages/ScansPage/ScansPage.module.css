@@ -100,6 +100,13 @@
   gap: 12px;
 }
 
+.detectHint {
+  font-size: 0.8rem;
+  color: var(--dim);
+  line-height: 1.45;
+  margin: 0 0 4px;
+}
+
 .badgeRow {
   display: flex;
   align-items: center;
@@ -417,6 +424,10 @@
   z-index: 1000;
   backdrop-filter: blur(4px);
   cursor: pointer;
+}
+
+.modalHidden {
+  display: none;
 }
 
 .modalContent {

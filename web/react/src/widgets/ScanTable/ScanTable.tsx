@@ -17,6 +17,7 @@ const statusLabels: Record<ScanStatus, string> = {
   WAITING_FOR_AUTH: 'Ожидание авторизации',
   PENDING: 'Приостановлен',
   CANCELLED: 'Отменён',
+  CANCELED: 'Отменён',
 }
 
 function getStatusClass(status: string): string {

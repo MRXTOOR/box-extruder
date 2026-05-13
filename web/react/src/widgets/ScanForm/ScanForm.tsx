@@ -35,6 +35,11 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    const hasCreds = !!(login.trim() && password.trim())
+    if (hasCreds && !authUrl.trim()) {
+      alert('Укажите URL авторизации (authUrl) — автопоиск endpoint отключён.')
+      return
+    }
     setLoading(true)
     try {
       await onSubmit(targetUrl, {
@@ -108,13 +113,16 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
 
       <div className={styles.field}>
         <label className={styles.label} htmlFor="authUrl">
-          Auth URL <span className={styles.labelOptional}>— опционально</span>
+          URL авторизации (login API) <span className={styles.labelOptional}>— обязателен вместе с логином</span>
         </label>
+        <p className={styles.fieldHint}>
+          Только HTTP POST к JSON API (ответ 2xx с токеном или Set-Cookie). Страница вида <code>/?auth=login</code> не подходит.
+        </p>
         <input
           id="authUrl"
           type="text"
           className={styles.input}
-          placeholder="точный endpoint логина"
+          placeholder="https://kubikvpn.com/api/v1/auth/login"
           value={authUrl}
           onChange={(e) => setAuthUrl(e.target.value)}
           disabled={loading}
@@ -123,7 +131,7 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
 
       <div className={styles.field}>
         <label className={styles.label} htmlFor="verifyUrl">
-          Verify URL <span className={styles.labelOptional}>— опционально</span>
+          Verify URL <span className={styles.labelOptional}>— опционально; если пусто, сессия берётся из ответа логина</span>
         </label>
         <input
           id="verifyUrl"
@@ -228,7 +236,7 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
       </details>
 
       <button type="submit" className={styles.button} disabled={loading}>
-        {loading ? 'Запуск...' : 'Автодетект и запуск скана'}
+        {loading ? 'Запуск...' : 'Запуск скана'}
       </button>
     </form>
   )

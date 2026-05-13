@@ -14,16 +14,26 @@ function headers(): HeadersInit {
 }
 
 async function handleJsonResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }))
-    throw new Error(err.error || 'Request failed')
-  }
   const text = await res.text()
+  if (!res.ok) {
+    const trimmed = text.trim()
+    let msg = trimmed || res.statusText || 'Request failed'
+    if (trimmed) {
+      try {
+        const j = JSON.parse(trimmed) as { error?: string; message?: string }
+        if (typeof j.error === 'string' && j.error) msg = j.error
+        else if (typeof j.message === 'string' && j.message) msg = j.message
+      } catch {
+        /* Go http.Error и др. отдают plain text — показываем как есть */
+      }
+    }
+    throw new Error(msg)
+  }
   if (!text || text === 'null') {
     return null as unknown as T
   }
   try {
-    return JSON.parse(text)
+    return JSON.parse(text) as T
   } catch {
     return null as unknown as T
   }

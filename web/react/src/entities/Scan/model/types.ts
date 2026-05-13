@@ -19,6 +19,7 @@ export type ScanStatus =
   | 'WAITING_FOR_AUTH'
   | 'PENDING'
   | 'CANCELLED'
+  | 'CANCELED'
 
 export interface Finding {
   id: string

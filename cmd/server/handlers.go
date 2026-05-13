@@ -15,6 +15,7 @@ import (
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
 	"github.com/box-extruder/dast/internal/storage"
+	"github.com/box-extruder/dast/internal/webscan"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -132,7 +133,17 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		TargetURL string `json:"targetUrl"`
+		TargetURL             string `json:"targetUrl"`
+		Login                 string `json:"login"`
+		Password              string `json:"password"`
+		AuthURL               string `json:"authUrl"`
+		VerifyURL             string `json:"verifyUrl"`
+		KatanaDepth           *int   `json:"katanaDepth"`
+		KatanaMaxURLs         *int   `json:"katanaMaxUrls"`
+		ZapSpiderMinutes      *int   `json:"zapSpiderMinutes"`
+		ZapPassiveSecs        *int   `json:"zapPassiveSecs"`
+		StartPoints           string `json:"startPoints"`
+		InsecureSkipTLSVerify bool   `json:"insecureSkipVerify"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -141,6 +152,11 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.TargetURL = sanitizeInput(req.TargetURL)
+	req.Login = sanitizeInput(req.Login)
+	req.Password = sanitizeInput(req.Password)
+	req.AuthURL = sanitizeInput(req.AuthURL)
+	req.VerifyURL = sanitizeInput(req.VerifyURL)
+	req.StartPoints = sanitizeInput(req.StartPoints)
 
 	if !isValidURL(req.TargetURL) {
 		http.Error(w, "invalid target URL", http.StatusBadRequest)
@@ -149,7 +165,36 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 
 	jobID := uuid.NewString()
 
-	_, err := db.CreateScan(r.Context(), h.pool, c.UserID, jobID, req.TargetURL, "")
+	var startLines []string
+	for _, line := range strings.Split(req.StartPoints, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			startLines = append(startLines, line)
+		}
+	}
+
+	yamlBytes, err := webscan.BuildScanYAML(webscan.CreateOptions{
+		JobID:                 jobID,
+		Target:                req.TargetURL,
+		Login:                 req.Login,
+		Password:              req.Password,
+		AuthURL:               req.AuthURL,
+		VerifyURL:             req.VerifyURL,
+		KatanaDepth:           req.KatanaDepth,
+		KatanaMaxURLs:         req.KatanaMaxURLs,
+		ZapSpiderMinutes:      req.ZapSpiderMinutes,
+		ZapPassiveSecs:        req.ZapPassiveSecs,
+		StartPoints:           startLines,
+		InsecureSkipTLSVerify: req.InsecureSkipTLSVerify,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfgHash := storage.ConfigHashSHA256(yamlBytes)
+
+	_, err = db.CreateScan(r.Context(), h.pool, c.UserID, jobID, req.TargetURL, cfgHash)
 	if err != nil {
 		log.Printf("CreateScan error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -157,9 +202,11 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := queue.JobMessage{
-		JobID:     jobID,
-		UserID:    c.UserID,
-		TargetURL: req.TargetURL,
+		JobID:      jobID,
+		UserID:     c.UserID,
+		TargetURL:  req.TargetURL,
+		ConfigYAML: string(yamlBytes),
+		ConfigHash: cfgHash,
 	}
 
 	if err := queue.Enqueue(r.Context(), h.rdb, job); err != nil {
@@ -173,6 +220,7 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
 		"id":        jobID,
+		"jobId":     jobID,
 		"targetUrl": req.TargetURL,
 		"status":    "QUEUED",
 	})
@@ -224,12 +272,12 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":        scan.ID,
-		"jobId":     scan.JobID,
+		"id":         scan.ID,
+		"jobId":      scan.JobID,
 		"targetUrl":  scan.TargetURL,
 		"status":     scan.Status,
 		"createdAt":  scan.CreatedAt,
-		"finishedAt":  scan.FinishedAt,
+		"finishedAt": scan.FinishedAt,
 		"findings":   findings,
 	})
 }
@@ -312,7 +360,7 @@ func (h *Handler) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ERROR: ReadJob failed for %s: %v (workDir=%s)", jobID, readErr, h.workDir)
 		j = nil
 	} else {
-		log.Printf("SUCCESS: ReadJob for %s returned job with startedAt=%v, finishedAt=%v, steps=%d", 
+		log.Printf("SUCCESS: ReadJob for %s returned job with startedAt=%v, finishedAt=%v, steps=%d",
 			jobID, j.StartedAt, j.FinishedAt, len(j.Steps))
 	}
 
@@ -349,22 +397,22 @@ func (h *Handler) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"status":           scan.Status,
-		"elapsedSeconds":   elapsedSeconds,
-		"progress":         progress,
-		"completedSteps":   completedSteps,
-		"totalSteps":       totalSteps,
-		"steps":            steps,
+		"status":         scan.Status,
+		"elapsedSeconds": elapsedSeconds,
+		"progress":       progress,
+		"completedSteps": completedSteps,
+		"totalSteps":     totalSteps,
+		"steps":          steps,
 	})
 }
 
 func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 	jobID := extractJobID(r.URL.Path)
 	format := r.URL.Query().Get("format")
-	
+
 	workDir := h.workDir
 	reportsDir := filepath.Join(workDir, "jobs", jobID, "reports")
-	
+
 	switch strings.ToLower(format) {
 	case "html":
 		reportPath := filepath.Join(reportsDir, "report.html")
@@ -427,39 +475,18 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	jobID := extractJobID(r.URL.Path)
-	contextsDir := fmt.Sprintf("%s/jobs/%s/contexts", h.workDir, jobID)
-
-	files, err := os.ReadDir(contextsDir)
-	if err != nil {
-		http.Error(w, "endpoints not found", http.StatusNotFound)
+	if endpoints, err := storage.LoadEndpointsTxt(h.workDir, jobID); err == nil && len(endpoints) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(endpoints)
 		return
 	}
-
-	var lines []string
-	for _, f := range files {
-		if !f.IsDir() && strings.HasPrefix(f.Name(), "context-") {
-			data, err := os.ReadFile(filepath.Join(contextsDir, f.Name()))
-			if err != nil {
-				continue
-			}
-			lines = append(lines, string(data))
-		}
-	}
-
-	if len(lines) == 0 {
-		// Try to load from endpoints.txt
-		endpoints, err := storage.LoadEndpointsTxt(h.workDir, jobID)
-		if err == nil && len(endpoints) > 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("[" + strings.Join(endpoints, "\n") + "]"))
-			return
-		}
-		http.Error(w, "endpoints not found", http.StatusNotFound)
+	// Fallback for historical jobs where endpoints.txt is missing.
+	if j, err := storage.ReadJob(h.workDir, jobID); err == nil && len(j.ScannedEndpoints) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(j.ScannedEndpoints)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte("[" + strings.Join(lines, ",") + "]"))
+	http.Error(w, "endpoints not found", http.StatusNotFound)
 }
 
 func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
@@ -525,7 +552,7 @@ func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if scan.Status == "SUCCEEDED" || scan.Status == "FAILED" || scan.Status == "CANCELED" {
+	if scan.Status == "SUCCEEDED" || scan.Status == "FAILED" || scan.Status == "CANCELED" || scan.Status == "CANCELLED" {
 		http.Error(w, "cannot cancel scan with status "+scan.Status, http.StatusBadRequest)
 		return
 	}
@@ -535,10 +562,14 @@ func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	// Reflect cancel request immediately in UI; worker observes flag and stops on the next checkpoint.
+	if err := db.UpdateScanStatus(r.Context(), h.pool, scan.JobID, "CANCELLED"); err != nil {
+		log.Printf("UpdateScanStatus(cancel) warning for %s: %v", scan.JobID, err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "CANCELED",
+		"status": "CANCELLED",
 	})
 }
 
@@ -580,8 +611,8 @@ func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if scan.Status != "SUCCEEDED" && scan.Status != "FAILED" && scan.Status != "CANCELED" {
-		http.Error(w, "can only restart scans with status SUCCEEDED, FAILED, or CANCELED", http.StatusBadRequest)
+	if scan.Status != "SUCCEEDED" && scan.Status != "FAILED" && scan.Status != "CANCELED" && scan.Status != "CANCELLED" {
+		http.Error(w, "can only restart scans with status SUCCEEDED, FAILED, or CANCELLED", http.StatusBadRequest)
 		return
 	}
 
