@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/box-extruder/dast/internal/auth/discovery"
 	"github.com/box-extruder/dast/internal/enterprise/auth"
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
@@ -256,7 +257,8 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	findings, _ := db.GetFindingsByScanID(r.Context(), h.pool, scan.ID)
-	if len(findings) == 0 {
+	// Fallback for scans completed before DB persistence was enabled.
+	if len(findings) == 0 && (scan.Status == "SUCCEEDED" || scan.Status == "PARTIAL_SUCCESS" || scan.Status == "FAILED") {
 		if fileFindings, err := storage.LoadFindingsJSON(h.workDir, scan.JobID, "findings-final.json"); err == nil {
 			for _, f := range fileFindings {
 				findings = append(findings, db.Finding{
@@ -407,7 +409,12 @@ func (h *Handler) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
-	jobID := extractJobID(r.URL.Path)
+	scan, _, err := h.getScanForUser(r)
+	if err != nil {
+		writeScanAccessError(w, err)
+		return
+	}
+	jobID := scan.JobID
 	format := r.URL.Query().Get("format")
 
 	workDir := h.workDir
@@ -474,7 +481,12 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleEndpoints(w http.ResponseWriter, r *http.Request) {
-	jobID := extractJobID(r.URL.Path)
+	scan, _, err := h.getScanForUser(r)
+	if err != nil {
+		writeScanAccessError(w, err)
+		return
+	}
+	jobID := scan.JobID
 	if endpoints, err := storage.LoadEndpointsTxt(h.workDir, jobID); err == nil && len(endpoints) > 0 {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(endpoints)
@@ -496,7 +508,8 @@ func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		TargetURL string `json:"targetUrl"`
+		TargetURL             string `json:"targetUrl"`
+		InsecureSkipTLSVerify bool   `json:"insecureSkipTlsVerify"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -505,13 +518,58 @@ func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.TargetURL = sanitizeInput(req.TargetURL)
+	if !isValidURL(req.TargetURL) {
+		http.Error(w, "invalid target URL", http.StatusBadRequest)
+		return
+	}
 
+	res := discovery.DiscoverSurface(req.TargetURL, req.InsecureSkipTLSVerify)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"targetUrl": req.TargetURL,
-		"forms":     []string{},
-		"loginUrls": []string{},
-	})
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// getScanForUser resolves scan by path id (scan UUID or jobId) and enforces owner/admin access.
+func (h *Handler) getScanForUser(r *http.Request) (*db.Scan, *auth.Claims, error) {
+	claims := r.Context().Value("user")
+	if claims == nil {
+		return nil, nil, fmt.Errorf("unauthorized")
+	}
+	c, ok := claims.(*auth.Claims)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid token")
+	}
+	jobID := extractJobID(r.URL.Path)
+	if jobID == "" {
+		return nil, nil, fmt.Errorf("invalid scan id")
+	}
+	scan, err := db.GetScanByID(r.Context(), h.pool, jobID)
+	if err != nil {
+		scan, err = db.GetScanByJobID(r.Context(), h.pool, jobID)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("scan not found")
+	}
+	if scan.UserID != c.UserID && c.Role != "admin" {
+		return nil, nil, fmt.Errorf("forbidden")
+	}
+	return scan, c, nil
+}
+
+func writeScanAccessError(w http.ResponseWriter, err error) {
+	switch err.Error() {
+	case "unauthorized":
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	case "invalid token":
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+	case "forbidden":
+		http.Error(w, "forbidden", http.StatusForbidden)
+	case "invalid scan id":
+		http.Error(w, "invalid scan id", http.StatusBadRequest)
+	case "scan not found":
+		http.Error(w, "scan not found", http.StatusNotFound)
+	default:
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
@@ -618,21 +676,34 @@ func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
 
 	newJobID := uuid.NewString()
 
-	if err := db.UpdateScanStatus(r.Context(), h.pool, newJobID, "QUEUED"); err != nil {
-		log.Printf("RestartScan update status error: %v", err)
+	configYAML, err := os.ReadFile(storage.ScanConfigPath(h.workDir, scan.JobID))
+	if err != nil {
+		log.Printf("RestartScan: config snapshot missing for %s: %v", scan.JobID, err)
+		http.Error(w, "scan config not found; cannot restart", http.StatusBadRequest)
+		return
+	}
+	configHash := scan.ConfigHash
+	if configHash == "" {
+		configHash = storage.ConfigHashSHA256(configYAML)
+	}
+
+	if _, err := db.CreateScan(r.Context(), h.pool, scan.UserID, newJobID, scan.TargetURL, configHash); err != nil {
+		log.Printf("RestartScan create scan error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	job := queue.JobMessage{
-		JobID:     newJobID,
-		UserID:    c.UserID,
-		TargetURL: scan.TargetURL,
+		JobID:      newJobID,
+		UserID:     scan.UserID,
+		TargetURL:  scan.TargetURL,
+		ConfigYAML: string(configYAML),
+		ConfigHash: configHash,
 	}
 
 	if err := queue.Enqueue(r.Context(), h.rdb, job); err != nil {
 		log.Printf("RestartScan enqueue error: %v", err)
-		db.UpdateScanStatus(r.Context(), h.pool, newJobID, "FAILED")
+		_ = db.UpdateScanStatus(r.Context(), h.pool, newJobID, "FAILED")
 		http.Error(w, "failed to queue scan", http.StatusInternalServerError)
 		return
 	}
@@ -640,6 +711,7 @@ func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"id":        newJobID,
+		"jobId":     newJobID,
 		"targetUrl": scan.TargetURL,
 		"status":    "QUEUED",
 	})

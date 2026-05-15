@@ -107,10 +107,30 @@ curl http://localhost:8080/api/v1/scans \
 curl http://localhost:8080/api/v1/scans/{id}/status \
   -H "Authorization: Bearer $TOKEN"
 
-# Отчет
-curl http://localhost:8080/api/v1/scans/{id}/reports \
+# Отчет (требуется JWT)
+curl http://localhost:8080/api/v1/scans/{id}/reports?format=html \
+  -H "Authorization: Bearer $TOKEN"
+
+# Эндпоинты (требуется JWT)
+curl http://localhost:8080/api/v1/scans/{id}/endpoints \
+  -H "Authorization: Bearer $TOKEN"
+
+# Discover login/forms по targetUrl
+curl -X POST http://localhost:8080/api/v1/auth/discover \
+  -H "Content-Type: application/json" \
+  -d '{"targetUrl":"http://localhost:3001"}'
+
+# Restart: новая запись в scans + новый jobId (тот же config)
+curl -X POST http://localhost:8080/api/v1/scans/{id}/restart \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+Поведение API:
+
+- `POST /auth/discover` — возвращает `forms` и `loginUrls`, найденные на странице цели.
+- `GET /scans/{id}/reports` и `/endpoints` — только с JWT; доступ владельцу скана или `admin`.
+- Findings после скана сохраняются воркером в таблицу `findings` (БД); файлы job остаются как артефакты.
+- `POST /scans/{id}/restart` — создаёт **новую** строку в `scans` с новым `jobId` и ставит задачу с исходным YAML-конфигом.
 
 ## Конфигурация
 

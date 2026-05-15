@@ -244,6 +244,28 @@ func InsertFinding(ctx context.Context, pool *pgxpool.Pool, scanID, severity, na
 	return err
 }
 
+// ReplaceFindingsForScan deletes existing findings for a scan and inserts the new set.
+func ReplaceFindingsForScan(ctx context.Context, pool *pgxpool.Pool, scanID string, items []Finding) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM findings WHERE scan_id = $1`, scanID); err != nil {
+		return err
+	}
+	for _, f := range items {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO findings (scan_id, severity, name, description, evidence) VALUES ($1, $2, $3, $4, $5)`,
+			scanID, f.Severity, f.Name, f.Description, f.Evidence,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func DeleteUserByLogin(ctx context.Context, pool *pgxpool.Pool, login string) error {
 	_, err := pool.Exec(ctx, "DELETE FROM users WHERE login = $1", login)
 	return err

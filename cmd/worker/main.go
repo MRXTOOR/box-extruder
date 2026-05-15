@@ -16,6 +16,7 @@ import (
 	"github.com/box-extruder/dast/internal/config"
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
+	"github.com/box-extruder/dast/internal/model"
 	"github.com/box-extruder/dast/internal/runner"
 	"github.com/box-extruder/dast/internal/storage"
 	"github.com/redis/go-redis/v9"
@@ -213,7 +214,58 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 		log.Printf("Failed to update status to %s: %v", finalStatus, err)
 	}
 
+	if err := persistFindingsToDB(ctx, pool, workDir, job.JobID); err != nil {
+		log.Printf("Job %s: persist findings to DB: %v", job.JobID, err)
+	}
+
 	log.Printf("Job %s completed with status %s", job.JobID, finalStatus)
+}
+
+func persistFindingsToDB(ctx context.Context, pool *db.Pool, workDir, jobID string) error {
+	scan, err := db.GetScanByJobID(ctx, pool, jobID)
+	if err != nil {
+		return fmt.Errorf("scan row: %w", err)
+	}
+	raw, err := storage.LoadFindingsJSON(workDir, jobID, "findings-final.json")
+	if err != nil {
+		return fmt.Errorf("load findings-final.json: %w", err)
+	}
+	items := findingsToDBRows(scan.ID, raw)
+	return db.ReplaceFindingsForScan(ctx, pool, scan.ID, items)
+}
+
+func findingsToDBRows(scanID string, raw []model.Finding) []db.Finding {
+	out := make([]db.Finding, 0, len(raw))
+	for _, f := range raw {
+		name := strings.TrimSpace(f.Title)
+		if name == "" {
+			name = strings.TrimSpace(f.RuleID)
+		}
+		if name == "" {
+			name = "finding"
+		}
+		desc := strings.TrimSpace(f.Description)
+		if desc == "" {
+			desc = f.LocationKey
+		}
+		evidence := map[string]any{
+			"findingId":       f.FindingID,
+			"ruleId":          f.RuleID,
+			"category":        f.Category,
+			"locationKey":     f.LocationKey,
+			"lifecycleStatus": string(f.LifecycleStatus),
+			"confidence":      f.Confidence,
+			"evidenceRefs":    f.EvidenceRefs,
+		}
+		out = append(out, db.Finding{
+			ScanID:      scanID,
+			Severity:    string(f.Severity),
+			Name:        name,
+			Description: desc,
+			Evidence:    evidence,
+		})
+	}
+	return out
 }
 
 func buildConfig(job *queue.JobMessage) *config.ScanAsCode {
