@@ -7,7 +7,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -54,38 +56,23 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Println("Worker started, waiting for jobs...")
+	workerConcurrency := getWorkerConcurrency()
+	log.Printf("Worker started, waiting for jobs (concurrency=%d)...", workerConcurrency)
 
-	for {
-		select {
-		case <-sigCh:
-			log.Println("Shutting down...")
-			cancel()
-			return
-		default:
-			job, err := queue.Dequeue(ctx, rdb, 5*time.Second)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				continue
-			}
-
-			canceled, err := queue.GetCancelFlag(ctx, rdb, job.JobID)
-			if err != nil {
-				log.Printf("Warning: failed to check cancel flag: %v", err)
-			}
-			if canceled {
-				log.Printf("Job %s was canceled before start", job.JobID)
-				queue.ClearCancelFlag(ctx, rdb, job.JobID)
-				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
-				continue
-			}
-
-			log.Printf("Processing job: %s for target %s", job.JobID, job.TargetURL)
-			processJob(ctx, pool, rdb, workDir, job)
-		}
+	var workersWG sync.WaitGroup
+	for i := 0; i < workerConcurrency; i++ {
+		workersWG.Add(1)
+		workerID := i + 1
+		go func(id int) {
+			defer workersWG.Done()
+			runWorkerLoop(ctx, pool, rdb, workDir, id)
+		}(workerID)
 	}
+
+	<-sigCh
+	log.Println("Shutting down...")
+	cancel()
+	workersWG.Wait()
 }
 
 var dbHost, dbUser, dbPass, dbName string
@@ -93,6 +80,50 @@ var dbPort int
 var redisHost, redisPass string
 var redisPort int
 var workDir string
+
+func getWorkerConcurrency() int {
+	// By default run up to 4 scans in parallel.
+	raw := strings.TrimSpace(os.Getenv("DAST_WORKER_CONCURRENCY"))
+	if raw == "" {
+		return 4
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 1 {
+		log.Printf("Invalid DAST_WORKER_CONCURRENCY=%q, fallback to 4", raw)
+		return 4
+	}
+	if v > 16 {
+		log.Printf("DAST_WORKER_CONCURRENCY=%d is too high, capping to 16", v)
+		return 16
+	}
+	return v
+}
+
+func runWorkerLoop(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir string, workerID int) {
+	for {
+		job, err := queue.Dequeue(ctx, rdb, 5*time.Second)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+
+		canceled, err := queue.GetCancelFlag(ctx, rdb, job.JobID)
+		if err != nil {
+			log.Printf("Worker %d warning: failed to check cancel flag: %v", workerID, err)
+		}
+		if canceled {
+			log.Printf("Worker %d: job %s was canceled before start", workerID, job.JobID)
+			_ = queue.ClearCancelFlag(ctx, rdb, job.JobID)
+			_ = db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
+			continue
+		}
+
+		log.Printf("Worker %d: processing job %s for target %s", workerID, job.JobID, job.TargetURL)
+		processJob(ctx, pool, rdb, workDir, job)
+	}
+}
 
 func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir string, job *queue.JobMessage) {
 	defer func() {

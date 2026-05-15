@@ -256,9 +256,6 @@ func runPipeline(opt Options) (string, error) {
 
 	discoveryFeedSeen := make(map[string]struct{})
 	var discoveryFeed []string
-	// Track feed position consumed by previous Nuclei step to avoid rescanning the same large target set.
-	lastNucleiFeedIdx := 0
-	nucleiRuns := 0
 
 	var wantDiscoveryFeed, haveDiscovery bool
 	nucleiWithFeedIdx := -1
@@ -502,28 +499,14 @@ func runPipeline(opt Options) (string, error) {
 					}
 					emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: targets из файла %s (%d bytes)", filepath.Base(listPath), fi.Size()))
 				} else {
-					targetLines := []string{}
 					if stepCfg.NucleiIncludeDiscoveredURLs {
 						if len(discoveryFeed) == 0 {
 							emit(opt, jobID, "warn", "Nuclei: nucleiIncludeDiscoveredURLs is set but URL feed is empty (put Katana/ZAP before Nuclei in the plan)")
-							targetLines = nucleiCLITargetLines(cfg, bases, nil, false)
-						} else if nucleiRuns > 0 {
-							if len(discoveryFeed) <= lastNucleiFeedIdx {
-								st.Status = model.StepSkipped
-								emit(opt, jobID, "info", "Nuclei CLI: skip — после предыдущего Nuclei нет новых URL в discovery feed")
-								break
-							}
-							deltaFeed := discoveryFeed[lastNucleiFeedIdx:]
-							emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: delta mode, new feed URLs %d (only new URLs after previous Nuclei)", len(deltaFeed)))
-							// For repeated Nuclei runs scan only delta URLs to avoid heavy duplicate pass and OOM kills.
-							targetLines = nucleiCLITargetLines(cfg, nil, deltaFeed, true)
 						} else {
 							emit(opt, jobID, "info", fmt.Sprintf("Nuclei CLI: added feed URLs to targets (feed size %d, scope/budget limits apply)", len(discoveryFeed)))
-							targetLines = nucleiCLITargetLines(cfg, bases, discoveryFeed, true)
 						}
-					} else {
-						targetLines = nucleiCLITargetLines(cfg, bases, nil, false)
 					}
+					targetLines := nucleiCLITargetLines(cfg, bases, discoveryFeed, stepCfg.NucleiIncludeDiscoveredURLs)
 					listPath, werr = writeNucleiTargetsFile(opt.WorkDir, jobID, targetLines)
 					if werr != nil {
 						st.Status = model.StepFailed
@@ -573,10 +556,6 @@ func runPipeline(opt Options) (string, error) {
 					st.Metrics.FindingsRaw = len(nf)
 					st.Status = model.StepSucceeded
 				}
-				if stepCfg.NucleiIncludeDiscoveredURLs {
-					lastNucleiFeedIdx = len(discoveryFeed)
-				}
-				nucleiRuns++
 				break
 			}
 			tpls, terr := nuclei.LoadTemplates(paths)

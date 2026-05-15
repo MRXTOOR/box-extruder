@@ -2,6 +2,7 @@ package zap
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -82,15 +83,17 @@ func RunAutomation(
 		return nil, nil, err
 	}
 
-	if err := runZAPAutorun(outDir, dockerImage, useLocalZAP(), zapDockerExtra); err != nil {
-		return nil, nil, err
-	}
-
 	reportPath := filepath.Join(outDir, reportFileName)
+	runErr := runZAPAutorun(outDir, dockerImage, useLocalZAP(), zapDockerExtra)
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
+		if runErr != nil {
+			return nil, nil, runErr
+		}
 		return nil, nil, fmt.Errorf("zap automation: отчёт не найден %s: %w", reportPath, err)
 	}
+	// ZAP automation may exit with non-zero when some probe requests time out,
+	// but still produce a valid report. In that case we continue with parsed alerts.
 	return ParseReportJSON(data)
 }
 
@@ -277,9 +280,6 @@ func zapActiveScanMaxMinutes() int {
 }
 
 func remapLocalhostForZAPDocker(targetURL string, allow []string) (string, []string, []string) {
-	if useLocalZAP() {
-		return targetURL, allow, nil
-	}
 	if strings.TrimSpace(os.Getenv("DAST_ZAP_NO_LOCALHOST_REMAP")) == "1" {
 		return targetURL, allow, nil
 	}
@@ -322,9 +322,26 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 			}
 		}
 		autoHost := filepath.Join(outDir, automationFilename)
-		cmd := exec.Command(zapSh, "-cmd", "-autorun", autoHost)
+		// Isolate each local ZAP run to avoid cross-job conflicts when scans run concurrently.
+		zapHome := filepath.Join(outDir, ".zap-home")
+		zapHomeDir := filepath.Join(zapHome, ".ZAP_D")
+		if err := os.MkdirAll(zapHomeDir, 0o755); err != nil {
+			return fmt.Errorf("zap local home dir: %w", err)
+		}
+		port := pickFreeTCPPort()
+		cmd := exec.Command(
+			zapSh,
+			"-cmd",
+			"-port", strconv.Itoa(port),
+			"-dir", zapHomeDir,
+			"-config", "dirs.home="+zapHomeDir,
+			"-autorun", autoHost,
+		)
 		cmd.Dir = outDir
-		cmd.Env = os.Environ()
+		cmd.Env = append(os.Environ(),
+			"HOME="+zapHome,
+			"ZAP_HOME="+zapHomeDir,
+		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("zap local: %w\n%s", err, string(out))
@@ -353,4 +370,16 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 		return fmt.Errorf("zap docker automation: %w\n%s", err, string(out))
 	}
 	return nil
+}
+
+func pickFreeTCPPort() int {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 9090
+	}
+	defer ln.Close()
+	if addr, ok := ln.Addr().(*net.TCPAddr); ok && addr.Port > 0 {
+		return addr.Port
+	}
+	return 9090
 }

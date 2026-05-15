@@ -26,6 +26,7 @@ export function ScansPage() {
   const [scans, setScans] = useState<Scan[]>([])
   const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [autoDetectStatus, setAutoDetectStatus] = useState<'idle' | 'pending' | 'ok' | 'fail'>('idle')
   const [currentJobStatus, setCurrentJobStatus] = useState<string>('Нет активной задачи')
   const [currentJobKind, setCurrentJobKind] = useState<string>('')
@@ -35,11 +36,16 @@ export function ScansPage() {
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const [downloadTargetJobId, setDownloadTargetJobId] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const scansPollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     loadScans()
+    scansPollingRef.current = setInterval(() => {
+      loadScans({ silent: true })
+    }, 10000)
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current)
+      if (scansPollingRef.current) clearInterval(scansPollingRef.current)
     }
   }, [])
 
@@ -112,14 +118,26 @@ export function ScansPage() {
     return ''
   }
 
-  const loadScans = async () => {
+  const loadScans = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setLoading(true)
+    }
+    setRefreshing(true)
     try {
       const data = await api.getScans()
-      setScans(data || [])
+      const sorted = [...(data || [])].sort((a, b) => {
+        const at = new Date(a.createdAt).getTime()
+        const bt = new Date(b.createdAt).getTime()
+        return bt - at
+      })
+      setScans(sorted)
     } catch (err) {
       console.error(err)
     } finally {
-      setLoading(false)
+      if (!opts?.silent) {
+        setLoading(false)
+      }
+      setRefreshing(false)
     }
   }
 
@@ -130,7 +148,7 @@ export function ScansPage() {
       const jobId = scan.jobId || scan.id
       if (jobId) {
         setAutoDetectStatus('ok')
-        loadScans()
+        loadScans({ silent: true })
         startStatusPolling(jobId)
       } else {
         setAutoDetectStatus('fail')
@@ -197,6 +215,13 @@ export function ScansPage() {
     }
   }
 
+  const autoDetectBadgeClass =
+    autoDetectStatus === 'ok'
+      ? styles.badgeOk
+      : autoDetectStatus === 'fail'
+        ? styles.badgeFail
+        : styles.badgeIdle
+
   return (
     <div className={styles.page}>
       <div className={styles.pageInner}>
@@ -222,7 +247,7 @@ export function ScansPage() {
                   Статус последней попытки отправить форму выше (проверка логина к цели на сервере). Итог работы скана — в блоке «Задача».
                 </p>
                 <div className={styles.badgeRow}>
-                  <span className={`${styles.badge} ${autoDetectStatus === 'idle' ? 'idle' : autoDetectStatus === 'pending' ? 'idle' : autoDetectStatus}`}>
+                  <span className={`${styles.badge} ${autoDetectBadgeClass}`}>
                     <span className={styles.icon}>
                       {autoDetectStatus === 'idle' ? '○' : autoDetectStatus === 'pending' ? '…' : autoDetectStatus === 'ok' ? '✓' : '✕'}
                     </span>
@@ -262,7 +287,14 @@ export function ScansPage() {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h3 className={styles.sidebarTitle}>История сканов</h3>
-            <button className={styles.btnRefresh} onClick={loadScans} title="Обновить список">↻</button>
+            <button
+              className={`${styles.btnRefresh} ${refreshing ? styles.btnRefreshSpinning : ''}`}
+              onClick={() => loadScans({ silent: true })}
+              title="Обновить список"
+              disabled={refreshing}
+            >
+              ↻
+            </button>
           </div>
           <div className={styles.jobsList}>
             {loading ? (
@@ -275,6 +307,14 @@ export function ScansPage() {
                   key={scan.id} 
                   className={styles.jobCard}
                   onClick={() => handleViewScan(scan.jobId || scan.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleViewScan(scan.jobId || scan.id)
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className={styles.jobCardHeader}>
                     <span className={styles.jobCardId}>#{scan.jobId?.substring(0, 8) || scan.id?.substring(0, 8)}</span>
@@ -294,7 +334,8 @@ export function ScansPage() {
                         disabled={cancelingIds.has(scan.jobId || scan.id)}
                         title="Отменить"
                       >
-                        {cancelingIds.has(scan.jobId || scan.id) ? '…' : '⏹'}
+                        <span className={styles.actionIcon}>{cancelingIds.has(scan.jobId || scan.id) ? '…' : '⏹'}</span>
+                        <span className={styles.actionText}>Стоп</span>
                       </button>
                     )}
                     <button 
@@ -302,21 +343,24 @@ export function ScansPage() {
                       onClick={(e) => { e.stopPropagation(); openDownloadModal(scan.jobId || scan.id) }}
                       title="Скачать отчёт"
                     >
-                      📥
+                      <span className={styles.actionIcon}>📥</span>
+                      <span className={styles.actionText}>Отчёт</span>
                     </button>
                     <button 
                       className={styles.btnJobAction}
                       onClick={(e) => { e.stopPropagation(); handleViewEndpoints(scan.jobId || scan.id) }}
                       title="Эндпоинты"
                     >
-                      📋
+                      <span className={styles.actionIcon}>📋</span>
+                      <span className={styles.actionText}>URL</span>
                     </button>
                     <button 
                       className={`${styles.btnJobAction} ${styles.delete}`}
                       onClick={(e) => { e.stopPropagation(); handleDeleteScan(scan.jobId || scan.id) }}
                       title="Удалить"
                     >
-                      🗑
+                      <span className={styles.actionIcon}>🗑</span>
+                      <span className={styles.actionText}>Удалить</span>
                     </button>
                   </div>
                 </div>

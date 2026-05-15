@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: min(1180px, 100%);
+  margin: 0 auto;
 }
 
 .card {
@@ -94,6 +96,7 @@
 .actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .btnCancel,
@@ -133,37 +136,77 @@
 }
 
 .steps {
-  display: flex;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
   margin: 16px 0;
-  padding: 16px;
+  padding: 12px;
   background: rgba(13, 17, 23, 0.5);
   border-radius: 8px;
+  border: 1px solid var(--border);
 }
 
 .step {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  opacity: 0.5;
+  opacity: 0.8;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(13, 17, 23, 0.45);
 }
 
-.step.stepActive {
+.step.active {
   opacity: 1;
+  border-color: rgba(210, 153, 34, 0.4);
+  color: var(--warn);
 }
 
-.step.stepDone {
+.step.done {
   opacity: 1;
   color: var(--ok);
+  border-color: rgba(35, 134, 54, 0.4);
+}
+
+.step.failed {
+  opacity: 1;
+  color: var(--bad);
+  border-color: rgba(248, 81, 73, 0.45);
+}
+
+.step.skipped {
+  opacity: 1;
+  color: var(--dim);
+}
+
+.step.pending {
+  color: var(--muted);
 }
 
 .stepDot {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.stepInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .stepLabel {
   font-size: 0.85rem;
   font-weight: 500;
+  line-height: 1.2;
+}
+
+.stepStatus {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
 .refresh {
@@ -190,6 +233,61 @@
   font-size: 1.05rem;
   font-weight: 600;
   margin: 0 0 14px;
+}
+
+.findingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.findingSearch {
+  min-width: 260px;
+  max-width: 360px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(13, 17, 23, 0.65);
+  color: var(--text);
+}
+
+.findingSearch:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.18);
+}
+
+.severityFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.filterChip {
+  border: 1px solid var(--border);
+  background: rgba(13, 17, 23, 0.45);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.filterChip:hover {
+  color: var(--text);
+  border-color: rgba(88, 166, 255, 0.35);
+}
+
+.filterChip.active {
+  color: var(--accent);
+  border-color: rgba(56, 139, 253, 0.45);
+  background: rgba(56, 139, 253, 0.12);
 }
 
 .findings {
@@ -259,100 +357,56 @@
   color: var(--bad);
 }
 
-.links {
-  margin-top: 1rem;
+.resources {
+  margin-top: 0.9rem;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
-.dropdown {
-  position: relative;
-}
-
-.btnReport {
+.resourcesGroup {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  font-weight: 500;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.45);
+}
+
+.resourcesLabel {
+  font-size: 0.75rem;
+  color: var(--dim);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.resourceBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid rgba(56, 139, 253, 0.24);
+  background: rgba(56, 139, 253, 0.1);
   color: var(--text);
   text-decoration: none;
-  background: rgba(56, 139, 253, 0.1);
-  border: 1px solid rgba(56, 139, 253, 0.22);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
-.btnReport:hover {
+.resourceBtn:hover {
   background: rgba(56, 139, 253, 0.18);
+  border-color: rgba(56, 139, 253, 0.4);
 }
 
-.dropdownMenu {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  min-width: 160px;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.dropdown:hover .dropdownMenu {
-  display: block;
-}
-
-.dropdownMenu a {
-  display: block;
-  padding: 10px 14px;
-  font-size: 0.85rem;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.dropdownMenu a:hover {
-  background: var(--hover);
-}
-
-.btnEndpoints {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text);
-  background: rgba(56, 139, 253, 0.1);
-  border: 1px solid rgba(56, 139, 253, 0.22);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btnEndpoints:hover {
-  background: rgba(56, 139, 253, 0.18);
-}
-
-.btnViewEndpoints {
-  display: block;
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 0.85rem;
-  color: var(--text);
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-}
-
-.btnViewEndpoints:hover {
-  background: var(--hover);
+.resourceBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .modalOverlay {
@@ -412,6 +466,12 @@
 .modalBody {
   padding: 20px;
   overflow: auto;
+}
+
+.endpointsActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
 }
 
 .endpointsList {
@@ -476,4 +536,17 @@
   white-space: pre-wrap;
   word-break: break-word;
   color: #9da7b0;
+}
+
+@media (max-width: 740px) {
+  .card {
+    padding: 16px;
+  }
+  .findingSearch {
+    min-width: 100%;
+    max-width: 100%;
+  }
+  .resourcesGroup {
+    width: 100%;
+  }
 }

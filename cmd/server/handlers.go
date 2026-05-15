@@ -156,7 +156,7 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 	req.Password = sanitizeInput(req.Password)
 	req.AuthURL = sanitizeInput(req.AuthURL)
 	req.VerifyURL = sanitizeInput(req.VerifyURL)
-	req.StartPoints = sanitizeInput(req.StartPoints)
+	req.StartPoints = sanitizeMultilineInput(req.StartPoints)
 
 	if !isValidURL(req.TargetURL) {
 		http.Error(w, "invalid target URL", http.StatusBadRequest)
@@ -664,5 +664,14 @@ func isValidURL(url string) bool {
 
 func sanitizeInput(input string) string {
 	input = regexp.MustCompile(`[\x00-\x1F\x7F]`).ReplaceAllString(input, "")
+	return input
+}
+
+func sanitizeMultilineInput(input string) string {
+	// Keep line breaks for textarea fields such as startPoints.
+	// Drop control characters except LF/CR/TAB.
+	input = regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`).ReplaceAllString(input, "")
+	// Normalize Windows line endings to '\n' so server splitting is stable.
+	input = strings.ReplaceAll(input, "\r\n", "\n")
 	return input
 }

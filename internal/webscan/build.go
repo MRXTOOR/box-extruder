@@ -125,7 +125,13 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			TemplatePaths:               []string{"/opt/nuclei-templates"},
 			NucleiIncludeDiscoveredURLs: true,
 			NucleiRateLimit:             50,
-			NucleiExtraArgs:             []string{"-severity", "critical,high,medium,low"},
+			// Disable OAST polling for UI runs to avoid long hangs on public targets.
+			NucleiExtraArgs: []string{
+				"-severity", "critical,high,medium,low",
+				"-ni",
+				"-timeout", "5",
+				"-retries", "0",
+			},
 		},
 		{
 			StepType:               "zapBaseline",
@@ -142,7 +148,12 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			TemplatePaths:               []string{"/opt/nuclei-templates"},
 			NucleiIncludeDiscoveredURLs: true,
 			NucleiRateLimit:             50,
-			NucleiExtraArgs:             []string{"-severity", "critical,high,medium,low"},
+			NucleiExtraArgs: []string{
+				"-severity", "critical,high,medium,low",
+				"-ni",
+				"-timeout", "5",
+				"-retries", "0",
+			},
 		},
 	}
 	cfg.NucleiFollowUp = nil
@@ -157,5 +168,6 @@ func scopeRegexFromBase(raw string) string {
 		"(", "\\(", ")", "\\)", "[", "\\[", "]", "\\]",
 		"{", "\\{", "}", "\\}", "|", "\\|", "^", "\\^", "$", "\\$",
 	)
-	return "^" + repl.Replace(s) + "/.*"
+	// Include both the base URL itself and any nested path.
+	return "^" + repl.Replace(s) + "(/.*)?$"
 }

@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../shared/api/api'
-import { Scan, Finding, ScanStatus } from '../../entities/Scan/model/types'
+import { Scan, Finding, ScanStatus, ScanStatusResponse } from '../../entities/Scan/model/types'
 import styles from './ScanDetailPage.module.css'
 
 const statusLabels: Record<ScanStatus, string> = {
@@ -18,6 +18,11 @@ const statusLabels: Record<ScanStatus, string> = {
 
 const STEPS = ['Katana', 'ZAP Baseline', 'Nuclei']
 
+const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'CANCELED', 'PARTIAL_SUCCESS']
+const RUNNING_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH']
+const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const
+type SeverityFilter = 'ALL' | typeof SEVERITY_ORDER[number]
+
 function getStatusClass(status: string): string {
   return status.toLowerCase().replace('_', '-')
 }
@@ -27,8 +32,12 @@ export function ScanDetailPage() {
   const navigate = useNavigate()
   const [scan, setScan] = useState<Scan | null>(null)
   const [findings, setFindings] = useState<Finding[]>([])
+  const [statusInfo, setStatusInfo] = useState<ScanStatusResponse | null>(null)
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('ALL')
+  const [findingQuery, setFindingQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [canceling, setCanceling] = useState(false)
+  const [copyingEndpoints, setCopyingEndpoints] = useState(false)
   const [endpointsModalOpen, setEndpointsModalOpen] = useState(false)
   const [endpointsList, setEndpointsList] = useState<string[]>([])
   const [endpointsLoading, setEndpointsLoading] = useState(false)
@@ -40,6 +49,9 @@ export function ScanDetailPage() {
     setEndpointsModalOpen(false)
     setEndpointsList([])
     setEndpointsLoading(false)
+    setSeverityFilter('ALL')
+    setFindingQuery('')
+    setStatusInfo(null)
     endpointsLoadedJobIdRef.current = null
     loadData()
     startPolling()
@@ -49,20 +61,25 @@ export function ScanDetailPage() {
   }, [id])
 
   const startPolling = () => {
+    if (!id) return
     if (pollingRef.current) clearInterval(pollingRef.current)
-    pollingRef.current = setInterval(async () => {
+    const poll = async () => {
       try {
-        const status = await api.getScanStatus(id!)
+        const status = await api.getScanStatus(id)
         if (status && typeof status === 'object' && status.status) {
-          setScan(prev => prev ? { ...prev, status: status.status as ScanStatus } : null)
-          if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'CANCELED', 'PARTIAL_SUCCESS'].includes(status.status)) {
+          const typedStatus = status as ScanStatusResponse
+          setStatusInfo(typedStatus)
+          setScan(prev => prev ? { ...prev, status: typedStatus.status as ScanStatus } : null)
+          if (TERMINAL_STATUSES.includes(typedStatus.status)) {
             if (pollingRef.current) clearInterval(pollingRef.current)
           }
         }
       } catch (err) {
         console.error('Polling error:', err)
       }
-    }, 3000)
+    }
+    poll()
+    pollingRef.current = setInterval(poll, 3000)
   }
 
   const loadData = async () => {
@@ -134,13 +151,75 @@ export function ScanDetailPage() {
     }
   }
 
-  const isTerminal = scan?.status && ['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED', 'CANCELED'].includes(scan.status)
-  const isRunning = scan?.status && ['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH'].includes(scan.status)
+  const severityCounts = useMemo(() => {
+    const counts: Record<SeverityFilter, number> = {
+      ALL: findings.length,
+      CRITICAL: 0,
+      HIGH: 0,
+      MEDIUM: 0,
+      LOW: 0,
+      INFO: 0,
+    }
+    findings.forEach((finding) => {
+      const sev = (finding.severity || 'INFO').toUpperCase() as SeverityFilter
+      if (sev in counts && sev !== 'ALL') {
+        counts[sev] += 1
+      }
+    })
+    return counts
+  }, [findings])
 
-  const currentStep = () => {
-    if (scan?.status === 'QUEUED') return 0
-    if (scan?.status === 'RUNNING') return 1
-    return -1
+  const filteredFindings = useMemo(() => {
+    const query = findingQuery.trim().toLowerCase()
+    return findings.filter((finding) => {
+      const sev = (finding.severity || 'INFO').toUpperCase() as SeverityFilter
+      const bySeverity = severityFilter === 'ALL' || sev === severityFilter
+      if (!bySeverity) return false
+      if (!query) return true
+      const name = (finding.name || '').toLowerCase()
+      const desc = (finding.description || '').toLowerCase()
+      return name.includes(query) || desc.includes(query)
+    })
+  }, [findings, severityFilter, findingQuery])
+
+  const stepItems = useMemo(() => {
+    const steps = statusInfo?.steps || []
+    if (steps.length === 0) {
+      return STEPS.map((name) => ({ label: name, status: 'PENDING', kind: 'pending' }))
+    }
+    const seenNuclei = { count: 0 }
+    return steps.map((step) => {
+      const rawType = step.stepType || 'step'
+      let label = rawType
+      if (rawType === 'katana') label = 'Katana'
+      if (rawType === 'zapBaseline') label = 'ZAP Baseline'
+      if (rawType === 'nucleiTemplates' || rawType === 'nucleiCLI') {
+        seenNuclei.count += 1
+        label = seenNuclei.count > 1 ? `Nuclei #${seenNuclei.count}` : 'Nuclei'
+      }
+      const st = (step.status || 'PENDING').toUpperCase()
+      const kind =
+        st === 'SUCCEEDED' ? 'done' :
+        st === 'RUNNING' ? 'active' :
+        st === 'FAILED' ? 'failed' :
+        st === 'SKIPPED' ? 'skipped' : 'pending'
+      return { label, status: st, kind }
+    })
+  }, [statusInfo])
+
+  const isTerminal = !!(scan?.status && TERMINAL_STATUSES.includes(scan.status))
+  const isRunning = !!(scan?.status && RUNNING_STATUSES.includes(scan.status))
+
+  const copyEndpointsToClipboard = async () => {
+    if (!endpointsList.length || copyingEndpoints) return
+    try {
+      setCopyingEndpoints(true)
+      await navigator.clipboard.writeText(endpointsList.join('\n'))
+    } catch (err) {
+      console.error('Clipboard error:', err)
+    } finally {
+      setCopyingEndpoints(false)
+    }
   }
 
   if (loading) return <div className={styles.loading}>Загрузка...</div>
@@ -183,47 +262,65 @@ export function ScanDetailPage() {
 
         {isRunning && (
           <div className={styles.steps}>
-            {STEPS.map((step, idx) => (
-              <div key={step} className={`${styles.step} ${idx < currentStep() ? styles.stepDone : idx === currentStep() ? styles.stepActive : ''}`}>
+            {stepItems.map((step, idx) => (
+              <div key={`${step.label}-${idx}`} className={`${styles.step} ${styles[step.kind]}`}>
                 <div className={styles.stepDot}>
-                  {idx < currentStep() ? '✓' : idx === currentStep() ? '●' : '○'}
+                  {step.kind === 'done' ? '✓' : step.kind === 'active' ? '●' : step.kind === 'failed' ? '✕' : step.kind === 'skipped' ? '⤼' : '○'}
                 </div>
-                <span className={styles.stepLabel}>{step}</span>
+                <div className={styles.stepInfo}>
+                  <span className={styles.stepLabel}>{step.label}</span>
+                  <span className={styles.stepStatus}>{step.status}</span>
+                </div>
               </div>
             ))}
           </div>
         )}
         
-        <div className={styles.links}>
-          <div className={styles.dropdown}>
-            <button className={styles.btnReport}>📥 Скачать отчёт ▾</button>
-            <div className={styles.dropdownMenu}>
-              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=md`} target="_blank" rel="noopener">Markdown (MD)</a>
-              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=html`} target="_blank" rel="noopener">HTML</a>
-              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=docx`} target="_blank" rel="noopener">Word (DOCX)</a>
-            </div>
+        <div className={styles.resources}>
+          <div className={styles.resourcesGroup}>
+            <span className={styles.resourcesLabel}>Отчёт</span>
+            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=md`} target="_blank" rel="noopener">MD</a>
+            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=html`} target="_blank" rel="noopener">HTML</a>
+            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=docx`} target="_blank" rel="noopener">DOCX</a>
           </div>
-          <div className={styles.dropdown}>
-            <button className={styles.btnEndpoints}>📋 Эндпоинты ▾</button>
-            <div className={styles.dropdownMenu}>
-              <a href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=endpoints`} target="_blank" rel="noopener"> TXT</a>
-              <button className={styles.btnViewEndpoints} onClick={() => openEndpointsModal(scan.jobId || scan.id)}>Просмотр</button>
-            </div>
+          <div className={styles.resourcesGroup}>
+            <span className={styles.resourcesLabel}>Эндпоинты</span>
+            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=endpoints`} target="_blank" rel="noopener">TXT</a>
+            <button className={styles.resourceBtn} type="button" onClick={() => openEndpointsModal(scan.jobId || scan.id)}>Просмотр</button>
           </div>
         </div>
       </div>
 
       <section className={styles.card}>
-        <h3 className={styles.sectionTitle}>
-          Найденные уязвимости ({findings.length})
-        </h3>
+        <div className={styles.findingsHeader}>
+          <h3 className={styles.sectionTitle}>Найденные уязвимости ({findings.length})</h3>
+          <input
+            type="search"
+            className={styles.findingSearch}
+            placeholder="Поиск по названию/описанию"
+            value={findingQuery}
+            onChange={(e) => setFindingQuery(e.target.value)}
+          />
+        </div>
+        <div className={styles.severityFilters}>
+          {(Object.keys(severityCounts) as SeverityFilter[]).map((severity) => (
+            <button
+              key={severity}
+              type="button"
+              className={`${styles.filterChip} ${severityFilter === severity ? styles.active : ''}`}
+              onClick={() => setSeverityFilter(severity)}
+            >
+              {severity === 'ALL' ? 'Все' : severity} ({severityCounts[severity]})
+            </button>
+          ))}
+        </div>
         <div className={styles.findings}>
-          {findings.length === 0 ? (
+          {filteredFindings.length === 0 ? (
             <p className={styles.empty}>
-              {isRunning ? 'Сканирование продолжается...' : 'Уязвимости не обнаружены.'}
+              {isRunning ? 'Сканирование продолжается...' : findings.length === 0 ? 'Уязвимости не обнаружены.' : 'Ничего не найдено по текущему фильтру.'}
             </p>
           ) : (
-            findings.map((finding) => (
+            filteredFindings.map((finding) => (
               <div key={finding.id} className={`${styles.finding} ${styles[finding.severity?.toLowerCase() || 'info']}`}>
                 <div className={styles.findingName}>
                   {finding.name}
@@ -245,14 +342,26 @@ export function ScanDetailPage() {
       >
         <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
           <div className={styles.modalHeader}>
-            <h3>Просканированные эндпоинты</h3>
+            <h3>Просканированные эндпоинты ({endpointsList.length})</h3>
             <button type="button" className={styles.btnClose} onClick={closeEndpointsModal}>&times;</button>
           </div>
           <div className={styles.modalBody}>
             {endpointsLoading ? (
               <p>Загрузка...</p>
             ) : endpointsList.length > 0 ? (
-              <pre className={styles.endpointsList}>{endpointsList.join('\n')}</pre>
+              <>
+                <div className={styles.endpointsActions}>
+                  <button
+                    type="button"
+                    className={styles.resourceBtn}
+                    onClick={copyEndpointsToClipboard}
+                    disabled={copyingEndpoints}
+                  >
+                    {copyingEndpoints ? 'Копирование...' : 'Скопировать список'}
+                  </button>
+                </div>
+                <pre className={styles.endpointsList}>{endpointsList.join('\n')}</pre>
+              </>
             ) : (
               <p>Эндпоинты не найдены</p>
             )}
