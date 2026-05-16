@@ -88,6 +88,23 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, login, passwordHash, ro
 	return &user, nil
 }
 
+// UpsertUser creates a user or updates password/role if login already exists.
+func UpsertUser(ctx context.Context, pool *pgxpool.Pool, login, passwordHash, role string) (*User, error) {
+	var user User
+	err := pool.QueryRow(ctx,
+		`INSERT INTO users (login, password_hash, role)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (login)
+		 DO UPDATE SET password_hash = EXCLUDED.password_hash, role = EXCLUDED.role
+		 RETURNING id, login, role, created_at`,
+		login, passwordHash, role,
+	).Scan(&user.ID, &user.Login, &user.Role, &user.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 func GetUserByLogin(ctx context.Context, pool *pgxpool.Pool, login string) (*User, error) {
 	var user User
 	err := pool.QueryRow(ctx,

@@ -53,6 +53,10 @@ services:
       - REDIS_PORT=6379
       - JWT_SECRET=${JWT_SECRET:-changeme}
       - WORK_DIR=/workspace/work
+      - BOOTSTRAP_ADMIN_ENABLED=${BOOTSTRAP_ADMIN_ENABLED:-false}
+      - BOOTSTRAP_ADMIN_LOGIN=${BOOTSTRAP_ADMIN_LOGIN:-admin}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-}
+      - BOOTSTRAP_ADMIN_ROLE=${BOOTSTRAP_ADMIN_ROLE:-admin}
     volumes:
       - ../work:/workspace/work
     ports:
