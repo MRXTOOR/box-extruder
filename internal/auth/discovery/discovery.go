@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -218,6 +219,12 @@ func tryLogin(client *http.Client, loginURL, contentType, userField, passField, 
 			authHeader = strings.TrimSpace(tt + " " + token)
 		}
 	}
+	if authHeader == "" {
+		// Some backends return an already formatted auth header in response headers.
+		if h := strings.TrimSpace(resp.Header.Get("Authorization")); h != "" {
+			authHeader = h
+		}
+	}
 	cookieHeader := collectSetCookieHeader(resp)
 	ok := authHeader != "" || cookieHeader != ""
 	detail := fmt.Sprintf("status=%d token=%v cookie=%v path=%q", resp.StatusCode, authHeader != "", cookieHeader != "", tokenPath)
@@ -281,6 +288,9 @@ func extractTokenWithPath(data []byte) (path string, token string, tokenType str
 			return p, v, tokenType
 		}
 	}
+	if p, v, ok := findTokenRecursive(m, ""); ok {
+		return p, v, tokenType
+	}
 	for k, v := range m {
 		lk := strings.ToLower(strings.TrimSpace(k))
 		if strings.Contains(lk, "refresh") {
@@ -294,6 +304,41 @@ func extractTokenWithPath(data []byte) (path string, token string, tokenType str
 		}
 	}
 	return "", "", tokenType
+}
+
+func findTokenRecursive(v any, path string) (string, string, bool) {
+	switch node := v.(type) {
+	case map[string]any:
+		// Keep traversal deterministic to simplify debugging.
+		keys := make([]string, 0, len(node))
+		for k := range node {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			val := node[k]
+			nextPath := k
+			if path != "" {
+				nextPath = path + "." + k
+			}
+			lk := strings.ToLower(strings.TrimSpace(k))
+			if (strings.Contains(lk, "token") || strings.Contains(lk, "jwt")) && !strings.Contains(lk, "refresh") {
+				if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+					return nextPath, strings.TrimSpace(s), true
+				}
+			}
+			if p, s, ok := findTokenRecursive(val, nextPath); ok {
+				return p, s, true
+			}
+		}
+	case []any:
+		for _, item := range node {
+			if p, s, ok := findTokenRecursive(item, path); ok {
+				return p, s, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func readTokenType(m map[string]any) string {
