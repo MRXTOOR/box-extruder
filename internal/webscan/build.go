@@ -2,6 +2,7 @@ package webscan
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/box-extruder/dast/internal/auth/discovery"
@@ -33,6 +34,10 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	if target == "" {
 		return nil, fmt.Errorf("targetUrl is required")
 	}
+	baseTarget, err := normalizeTargetBase(target)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := config.DefaultScanAsCode()
 	cfg.Job.Name = strings.TrimSpace(opts.JobID)
@@ -48,12 +53,16 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			starts = append(starts, sp)
 		}
 	}
+	// If user entered a deep URL (/login, /app/home), also seed the site root.
+	if baseTarget != target {
+		starts = append(starts, baseTarget)
+	}
 	cfg.Targets = []config.Target{{
 		Type:        "web",
-		BaseURL:     target,
+		BaseURL:     baseTarget,
 		StartPoints: starts,
 	}}
-	cfg.Scope.Allow = []string{scopeRegexFromBase(target)}
+	cfg.Scope.Allow = []string{scopeRegexFromBase(baseTarget)}
 	cfg.Scope.Deny = nil
 
 	// Deeper defaults for UI-driven scans (Katana uses budgets for -max-urls; step depth overrides -d).
@@ -78,7 +87,8 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	}
 
 	login := strings.TrimSpace(opts.Login)
-	pass := strings.TrimSpace(opts.Password)
+	// Keep password as-is: leading/trailing spaces can be part of valid credentials.
+	pass := opts.Password
 	authURL := strings.TrimSpace(opts.AuthURL)
 	if login != "" || pass != "" {
 		if login == "" || pass == "" {
@@ -88,7 +98,7 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			return nil, fmt.Errorf("authUrl is required when using credentials (login URL auto-discovery was removed)")
 		}
 		disc := discovery.Discover(discovery.Request{
-			TargetURL:             target,
+			TargetURL:             baseTarget,
 			AuthURL:               authURL,
 			VerifyURL:             strings.TrimSpace(opts.VerifyURL),
 			Login:                 login,
@@ -138,6 +148,8 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			Enabled:                true,
 			ZAPAutomationFramework: true,
 			ZAPSpiderTraditional:   true,
+			// SPA targets (like Juice Shop) require Ajax spider to discover in-app routes/endpoints.
+			ZAPSpiderAjax:         true,
 			ZAPMaxSpiderMinutes:    zapSpiderMin,
 			ZAPPassiveWaitSeconds:  passiveWait,
 		},
@@ -170,4 +182,12 @@ func scopeRegexFromBase(raw string) string {
 	)
 	// Include both the base URL itself and any nested path.
 	return "^" + repl.Replace(s) + "(/.*)?$"
+}
+
+func normalizeTargetBase(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid targetUrl: expected absolute http(s) URL")
+	}
+	return u.Scheme + "://" + u.Host, nil
 }

@@ -282,7 +282,7 @@ func buildConfig(job *queue.JobMessage) *config.ScanAsCode {
 	cfg.Scope.Deny = nil
 	cfg.Scan.Plan = []config.ScanStep{
 		{StepType: "katana", Enabled: true},
-		{StepType: "zapBaseline", Enabled: true, ZAPAutomationFramework: true, ZAPSpiderTraditional: true},
+		{StepType: "zapBaseline", Enabled: true, ZAPAutomationFramework: true, ZAPSpiderTraditional: true, ZAPSpiderAjax: true},
 		{StepType: "nucleiTemplates", Enabled: true, TemplatePaths: []string{"templates/example-banner.yaml"}},
 	}
 	return &cfg

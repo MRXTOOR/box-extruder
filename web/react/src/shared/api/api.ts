@@ -39,6 +39,21 @@ async function handleJsonResponse<T>(res: Response): Promise<T> {
   }
 }
 
+function parseFilename(contentDisposition: string | null, fallback: string): string {
+  if (!contentDisposition) return fallback
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1])
+    } catch {
+      return utf8Match[1]
+    }
+  }
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+  if (plainMatch?.[1]) return plainMatch[1]
+  return fallback
+}
+
 export const api = {
   async login(login: string, password: string): Promise<{ token: string }> {
     const res = await fetch(`${BASE_URL}/auth/login`, {
@@ -101,9 +116,20 @@ export const api = {
     }
   },
 
-  async getScanEndpoints(jobId: string): Promise<import('../../entities/Scan/model/types').ContextInfo[]> {
+  async getScanEndpoints(jobId: string): Promise<string[]> {
     const res = await fetch(`${BASE_URL}/scans/${jobId}/endpoints`, { headers: headers() })
     return handleJsonResponse(res)
+  },
+
+  async getReport(jobId: string, format: 'md' | 'html' | 'docx' | 'endpoints' = 'md'): Promise<{ blob: Blob; filename: string; contentType: string }> {
+    const res = await fetch(`${BASE_URL}/scans/${jobId}/reports?format=${format}`, { headers: headers() })
+    if (!res.ok) {
+      await handleJsonResponse<unknown>(res)
+    }
+    const blob = await res.blob()
+    const filename = parseFilename(res.headers.get('content-disposition'), `report-${jobId.slice(0, 8)}.${format === 'endpoints' ? 'txt' : format}`)
+    const contentType = res.headers.get('content-type') || blob.type || 'application/octet-stream'
+    return { blob, filename, contentType }
   },
 
   async cancelScan(jobId: string): Promise<{ status: string }> {

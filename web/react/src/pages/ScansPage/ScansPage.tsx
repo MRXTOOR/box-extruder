@@ -166,8 +166,25 @@ export function ScansPage() {
     loadScans()
   }
 
-  const handleDownload = (jobId: string, format: string = 'md') => {
-    window.open(`/api/v1/scans/${jobId}/reports?format=${format}`, '_blank')
+  const handleDownload = async (jobId: string, format: 'md' | 'html' | 'docx' = 'md') => {
+    try {
+      const { blob, filename, contentType } = await api.getReport(jobId, format)
+      const url = URL.createObjectURL(blob)
+      if (contentType.includes('text/html')) {
+        window.open(url, '_blank')
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      alert(msg)
+    }
   }
 
   const openDownloadModal = (jobId: string) => {
@@ -179,8 +196,18 @@ export function ScansPage() {
     setDownloadModalOpen(false)
   }
 
-  const handleViewEndpoints = (jobId: string) => {
-    window.open(`/api/v1/scans/${jobId}/endpoints`, '_blank')
+  const handleViewEndpoints = async (jobId: string) => {
+    try {
+      const endpoints = await api.getScanEndpoints(jobId)
+      const text = endpoints.join('\n')
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      alert(msg)
+    }
   }
 
   const handleViewScan = (jobId: string) => {

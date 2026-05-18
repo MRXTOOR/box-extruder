@@ -116,13 +116,13 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
           URL авторизации (login API) <span className={styles.labelOptional}>— обязателен вместе с логином</span>
         </label>
         <p className={styles.fieldHint}>
-          Только HTTP POST к JSON API (ответ 2xx с токеном или Set-Cookie). Страница вида <code>/?auth=login</code> не подходит.
+          Укажите endpoint логина приложения (HTTP POST к JSON API с ответом 2xx и токеном/Set-Cookie). Страница вида <code>/login</code> не подходит.
         </p>
         <input
           id="authUrl"
           type="text"
           className={styles.input}
-          placeholder="https://kubikvpn.com/api/v1/auth/login"
+          placeholder="https://target.example/api/auth/login"
           value={authUrl}
           onChange={(e) => setAuthUrl(e.target.value)}
           disabled={loading}

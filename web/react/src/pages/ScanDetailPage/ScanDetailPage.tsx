@@ -101,15 +101,9 @@ export function ScanDetailPage() {
     }
     setEndpointsLoading(true)
     try {
-      const res = await fetch(`/api/v1/scans/${jobId}/reports?format=endpoints`)
-      if (res.ok) {
-        const text = await res.text()
-        const eps = text.split('\n').filter((line: string) => line.trim() !== '')
-        setEndpointsList(eps)
-        endpointsLoadedJobIdRef.current = jobId
-      } else {
-        setEndpointsList([])
-      }
+      const eps = await api.getScanEndpoints(jobId)
+      setEndpointsList(eps)
+      endpointsLoadedJobIdRef.current = jobId
     } catch (err) {
       console.error(err)
       setEndpointsList([])
@@ -222,6 +216,37 @@ export function ScanDetailPage() {
     }
   }
 
+  const handleReportDownload = async (jobId: string, format: 'md' | 'html' | 'docx') => {
+    try {
+      const { blob, filename, contentType } = await api.getReport(jobId, format)
+      const url = URL.createObjectURL(blob)
+      if (contentType.includes('text/html')) {
+        window.open(url, '_blank')
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleEndpointsTextOpen = async (jobId: string) => {
+    try {
+      const { blob } = await api.getReport(jobId, 'endpoints')
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   if (loading) return <div className={styles.loading}>Загрузка...</div>
   if (!scan) return <div className={styles.error}>Скан не найден</div>
 
@@ -279,13 +304,13 @@ export function ScanDetailPage() {
         <div className={styles.resources}>
           <div className={styles.resourcesGroup}>
             <span className={styles.resourcesLabel}>Отчёт</span>
-            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=md`} target="_blank" rel="noopener">MD</a>
-            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=html`} target="_blank" rel="noopener">HTML</a>
-            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=docx`} target="_blank" rel="noopener">DOCX</a>
+            <button className={styles.resourceBtn} type="button" onClick={() => handleReportDownload(scan.jobId || scan.id, 'md')}>MD</button>
+            <button className={styles.resourceBtn} type="button" onClick={() => handleReportDownload(scan.jobId || scan.id, 'html')}>HTML</button>
+            <button className={styles.resourceBtn} type="button" onClick={() => handleReportDownload(scan.jobId || scan.id, 'docx')}>DOCX</button>
           </div>
           <div className={styles.resourcesGroup}>
             <span className={styles.resourcesLabel}>Эндпоинты</span>
-            <a className={styles.resourceBtn} href={`/api/v1/scans/${scan.jobId || scan.id}/reports?format=endpoints`} target="_blank" rel="noopener">TXT</a>
+            <button className={styles.resourceBtn} type="button" onClick={() => handleEndpointsTextOpen(scan.jobId || scan.id)}>TXT</button>
             <button className={styles.resourceBtn} type="button" onClick={() => openEndpointsModal(scan.jobId || scan.id)}>Просмотр</button>
           </div>
         </div>
