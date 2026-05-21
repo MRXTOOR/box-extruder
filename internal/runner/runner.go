@@ -369,7 +369,7 @@ func runPipeline(opt Options) (string, error) {
 						}
 					}
 				}
-				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(kf, evidenceByID))
+				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(kf, evidenceByID, discoveryPreserveQuery(cfg)))
 				st.Metrics.FindingsRaw = len(kf)
 				st.Metrics.URLsSeen = len(kf)
 				st.Status = model.StepSucceeded
@@ -383,7 +383,10 @@ func runPipeline(opt Options) (string, error) {
 				emit(opt, jobID, "info", "Step zapBaseline: skipped (-skip-zap)")
 				break
 			}
-			base := cfg.Targets[0].BaseURL
+			zapSeeds := katanaSeedURLs(cfg)
+			if len(zapSeeds) == 0 && len(cfg.Targets) > 0 {
+				zapSeeds = []string{cfg.Targets[0].BaseURL}
+			}
 			zapDir := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "zap-out")
 			authHeaders := map[string]string{}
 			for k, v := range authRes.HeaderInject {
@@ -407,11 +410,16 @@ func runPipeline(opt Options) (string, error) {
 				}
 			}
 			if zapworker.UseAutomation(stepCfg) {
-				emit(opt, jobID, "info", "ZAP: Automation Framework (spider / Ajax spider if enabled)")
-				zf, ze, zerr = zapworker.RunAutomation(base, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir, cfg.Scope.Allow, stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath)
+				emit(opt, jobID, "info", fmt.Sprintf("ZAP: Automation Framework (%d seed URLs)", len(zapSeeds)))
+				zf, ze, zerr = zapworker.RunAutomation(
+					zapSeeds, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir,
+					cfg.Scope.Allow, stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath,
+					authRes.Context.ContextID, cfg.Noise.Dedupe,
+				)
 			} else {
 				emit(opt, jobID, "info", "ZAP: baseline script (docker)")
-				zf, ze, zerr = zapworker.RunBaseline(base, zapDir, stepCfg.ZAPDockerImage, authHeaders)
+				zapBase := zapSeeds[0]
+				zf, ze, zerr = zapworker.RunBaseline(zapBase, zapDir, stepCfg.ZAPDockerImage, authHeaders)
 			}
 			if zerr != nil {
 				st.Status = model.StepFailed
@@ -435,7 +443,7 @@ func runPipeline(opt Options) (string, error) {
 						}
 					}
 				}
-				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(zf, evidenceByID))
+				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(zf, evidenceByID, discoveryPreserveQuery(cfg)))
 				st.Metrics.FindingsRaw = len(zf)
 				st.Status = model.StepSucceeded
 			}
@@ -696,6 +704,10 @@ func runPipeline(opt Options) (string, error) {
 	_ = report.PandocToDocxOptional(mdPath, docxPath, ref)
 	_ = report.WriteHTMLReport(cfg.Job.Name, baseURL, now, time.Now().UTC(), final, scannedEndpoints, htmlPath)
 	_ = storage.WriteEndpointsTxt(opt.WorkDir, jobID, scannedEndpoints)
+	if len(discoveryFeed) > 0 {
+		_ = storage.WriteDiscoveredURLsTxt(opt.WorkDir, jobID, discoveryFeed)
+		emit(opt, jobID, "info", fmt.Sprintf("Discovery: %d URLs written to reports/discovered_urls.txt", len(discoveryFeed)))
+	}
 	emit(opt, jobID, "info", "Markdown saved; DOCX if pandoc in PATH, else reports/report.html for Word/LibreOffice")
 
 	partial := false
@@ -888,11 +900,18 @@ func katanaSeedURLs(cfg *config.ScanAsCode) []string {
 	return out
 }
 
+func katanaHeadlessEnabled(step config.ScanStep) bool {
+	if strings.TrimSpace(os.Getenv("DAST_KATANA_HEADLESS")) == "0" {
+		return false
+	}
+	return step.KatanaHeadless
+}
+
 func katanaOptsFromStep(cfg *config.ScanAsCode, step config.ScanStep, seeds, headers []string) katana.CLIOptions {
 	o := katana.CLIOptions{
 		Targets:   seeds,
 		Headers:   headers,
-		Headless:  step.KatanaHeadless,
+		Headless:  katanaHeadlessEnabled(step),
 		ExtraArgs: step.KatanaExtraArgs,
 		Dedupe:    cfg.Noise.Dedupe,
 	}

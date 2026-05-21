@@ -69,6 +69,7 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	cfg.Budgets.Discovery.MaxDepth = 6
 	cfg.Budgets.Discovery.MaxURLs = 3000
 	cfg.Budgets.Discovery.DurationCrawlSecs = 120
+	cfg.Budgets.Discovery.PreserveQuery = true
 	if opts.KatanaDepth != nil && *opts.KatanaDepth > 0 {
 		cfg.Budgets.Discovery.MaxDepth = *opts.KatanaDepth
 	}
@@ -81,7 +82,7 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	if opts.ZapSpiderMinutes != nil && *opts.ZapSpiderMinutes > 0 {
 		zapSpiderMin = *opts.ZapSpiderMinutes
 	}
-	passiveWait := 90
+	passiveWait := 180
 	if opts.ZapPassiveSecs != nil && *opts.ZapPassiveSecs > 0 {
 		passiveWait = *opts.ZapPassiveSecs
 	}
@@ -126,23 +127,16 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 		}
 	}
 
+	katanaStep := config.ScanStep{
+		StepType:        "katana",
+		Enabled:         true,
+		KatanaDepth:     katDepth,
+		KatanaHeadless:  true,
+		KatanaExtraArgs: []string{"-jc"},
+	}
+
 	cfg.Scan.Plan = []config.ScanStep{
-		{StepType: "katana", Enabled: true, KatanaDepth: katDepth},
-		{
-			StepType:                    "nucleiTemplates",
-			Enabled:                     true,
-			NucleiEngine:                "cli",
-			TemplatePaths:               []string{"/opt/nuclei-templates"},
-			NucleiIncludeDiscoveredURLs: true,
-			NucleiRateLimit:             50,
-			// Disable OAST polling for UI runs to avoid long hangs on public targets.
-			NucleiExtraArgs: []string{
-				"-severity", "critical,high,medium,low",
-				"-ni",
-				"-timeout", "5",
-				"-retries", "0",
-			},
-		},
+		katanaStep,
 		{
 			StepType:               "zapBaseline",
 			Enabled:                true,

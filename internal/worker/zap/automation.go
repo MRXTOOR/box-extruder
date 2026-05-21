@@ -34,11 +34,14 @@ func UseAutomation(step config.ScanStep) bool {
 }
 
 func RunAutomation(
-	targetURL, outDir, dockerImage, configFileDir string,
+	seedURLs []string,
+	outDir, dockerImage, configFileDir string,
 	allow []string,
 	step config.ScanStep,
 	authHeaders map[string]string,
 	sqlPayloadPath, xssPayloadPath string,
+	contextID string,
+	dedupe config.DedupeConfig,
 ) ([]model.Finding, []model.Evidence, error) {
 	if dockerImage == "" {
 		dockerImage = "ghcr.io/zaproxy/zaproxy:stable"
@@ -48,6 +51,10 @@ func RunAutomation(
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return nil, nil, err
+	}
+	seedURLs = dedupeSeedURLs(seedURLs)
+	if len(seedURLs) == 0 {
+		return nil, nil, fmt.Errorf("zap automation: no seed URLs")
 	}
 
 	var yamlBytes []byte
@@ -68,11 +75,23 @@ func RunAutomation(
 		if useLocalZAP() {
 			reportDir = absOut
 		}
-		var zt string
+		remapped := make([]string, 0, len(seedURLs))
 		var za []string
-		zt, za, zapDockerExtra = remapLocalhostForZAPDocker(targetURL, allow)
-		probes := BuildMergedPayloadProbes(zt, authHeaders, sqlPayloadPath, xssPayloadPath)
-		yamlBytes, err = buildAutomationYAML(zt, za, step, reportDir, authHeaders, probes)
+		for _, s := range seedURLs {
+			zs, a, extra := remapLocalhostForZAPDocker(s, allow)
+			remapped = append(remapped, zs)
+			if len(a) > len(za) {
+				za = a
+			}
+			if len(extra) > 0 {
+				zapDockerExtra = extra
+			}
+		}
+		remapped = dedupeSeedURLs(remapped)
+		probeBase := remapped[0]
+		probes := BuildMergedPayloadProbes(probeBase, authHeaders, sqlPayloadPath, xssPayloadPath)
+		exportPath := filepath.Join(reportDir, urlsExportFileName)
+		yamlBytes, err = buildAutomationYAML(remapped, za, step, reportDir, authHeaders, probes, exportPath)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -84,7 +103,12 @@ func RunAutomation(
 	}
 
 	reportPath := filepath.Join(outDir, reportFileName)
+	exportPath := filepath.Join(outDir, urlsExportFileName)
 	runErr := runZAPAutorun(outDir, dockerImage, useLocalZAP(), zapDockerExtra)
+
+	var findings []model.Finding
+	var evidence []model.Evidence
+
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
 		if runErr != nil {
@@ -92,9 +116,20 @@ func RunAutomation(
 		}
 		return nil, nil, fmt.Errorf("zap automation: отчёт не найден %s: %w", reportPath, err)
 	}
-	// ZAP automation may exit with non-zero when some probe requests time out,
-	// but still produce a valid report. In that case we continue with parsed alerts.
-	return ParseReportJSON(data)
+	f, e, perr := ParseReportJSON(data)
+	if perr != nil {
+		return nil, nil, perr
+	}
+	findings = append(findings, f...)
+	evidence = append(evidence, e...)
+
+	if ef, ee, exErr := URLExportFindings(exportPath, contextID, dedupe); exErr == nil {
+		findings = append(findings, ef...)
+		evidence = append(evidence, ee...)
+	}
+	// runErr may be non-nil when probes time out but report/export exist
+	_ = runErr
+	return findings, evidence, nil
 }
 
 func useLocalZAP() bool {
@@ -120,7 +155,6 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 		if val == "" {
 			continue
 		}
-		// Поля по документации ZAP: https://www.zaproxy.org/docs/desktop/addons/replacer/automation/
 		rules = append(rules, map[string]any{
 			"description":         "DAST auth header " + name,
 			"matchType":         "req_header",
@@ -141,7 +175,7 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 	}
 }
 
-func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any) ([]byte, error) {
+func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any, exportFile string) ([]byte, error) {
 	maxSpider := step.ZAPMaxSpiderMinutes
 	if maxSpider <= 0 {
 		maxSpider = 5
@@ -155,6 +189,7 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 		passiveMin = 1
 	}
 
+	primary := seedURLs[0]
 	include := make([]string, 0, len(allow)+1)
 	for _, a := range allow {
 		a = strings.TrimSpace(a)
@@ -163,7 +198,7 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 		}
 	}
 	if len(include) == 0 {
-		include = append(include, strings.TrimSuffix(targetURL, "/")+"/.*")
+		include = append(include, strings.TrimSuffix(primary, "/")+"/.*")
 	}
 
 	useTrad := step.ZAPSpiderTraditional || !step.ZAPSpiderAjax
@@ -173,26 +208,21 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 		browser = "firefox-headless"
 	}
 
-	jobs := make([]map[string]any, 0, 8)
+	jobs := make([]map[string]any, 0, 16)
 	if rj := buildReplacerJobFromAuthHeaders(authHeaders); rj != nil {
 		jobs = append(jobs, rj)
 	}
-	if len(sqlProbes) > 0 {
-		jobs = append(jobs, map[string]any{
-			"type":       "requestor",
-			"parameters": map[string]any{},
-			"requests":   sqlProbes,
-		})
-	}
 	if useTrad {
-		jobs = append(jobs, map[string]any{
-			"type": "spider",
-			"parameters": map[string]any{
-				"context":     dastContextName,
-				"url":         targetURL,
-				"maxDuration": maxSpider,
-			},
-		})
+		for _, seed := range seedURLs {
+			jobs = append(jobs, map[string]any{
+				"type": "spider",
+				"parameters": map[string]any{
+					"context":     dastContextName,
+					"url":         seed,
+					"maxDuration": maxSpider,
+				},
+			})
+		}
 	}
 	jobs = append(jobs, map[string]any{
 		"type": "passiveScan-wait",
@@ -201,17 +231,19 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 		},
 	})
 	if useAjax {
-		jobs = append(jobs, map[string]any{
-			"type": "spiderAjax",
-			"parameters": map[string]any{
-				"context":       dastContextName,
-				"url":           targetURL,
-				"maxDuration":   maxSpider,
-				"browserId":     browser,
-				"runOnlyIfModern": false,
-				"inScopeOnly":   true,
-			},
-		})
+		for _, seed := range seedURLs {
+			jobs = append(jobs, map[string]any{
+				"type": "spiderAjax",
+				"parameters": map[string]any{
+					"context":         dastContextName,
+					"url":             seed,
+					"maxDuration":     maxSpider,
+					"browserId":       browser,
+					"runOnlyIfModern": false,
+					"inScopeOnly":     true,
+				},
+			})
+		}
 		jobs = append(jobs, map[string]any{
 			"type": "passiveScan-wait",
 			"parameters": map[string]any{
@@ -219,12 +251,28 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 			},
 		})
 	}
+	jobs = append(jobs, map[string]any{
+		"type": "export",
+		"parameters": map[string]any{
+			"context":  dastContextName,
+			"type":     "url",
+			"source":   "all",
+			"fileName": exportFile,
+		},
+	})
+	if len(sqlProbes) > 0 {
+		jobs = append(jobs, map[string]any{
+			"type":       "requestor",
+			"parameters": map[string]any{},
+			"requests":   sqlProbes,
+		})
+	}
 	if zapActiveScanEnabled() {
 		jobs = append(jobs, map[string]any{
 			"type": "activeScan",
 			"parameters": map[string]any{
 				"context":               dastContextName,
-				"url":                   targetURL,
+				"url":                   primary,
 				"maxScanDurationInMins": zapActiveScanMaxMinutes(),
 			},
 		})
@@ -238,7 +286,7 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 	jobs = append(jobs, map[string]any{
 		"type": "report",
 		"parameters": map[string]any{
-			"template":    "traditional-json",
+			"template":      "traditional-json",
 			"reportDir":     reportDir,
 			"reportFile":    reportFileName,
 			"reportTitle":   "DAST orchestrator",
@@ -251,14 +299,14 @@ func buildAutomationYAML(targetURL string, allow []string, step config.ScanStep,
 			"contexts": []any{
 				map[string]any{
 					"name":         dastContextName,
-					"urls":         []string{targetURL},
+					"urls":         seedURLs,
 					"includePaths": include,
 				},
 			},
 			"parameters": map[string]any{
-				"failOnError":        false,
-				"failOnWarning":      false,
-				"progressToStdout":   true,
+				"failOnError":      false,
+				"failOnWarning":    false,
+				"progressToStdout": true,
 			},
 		},
 		"jobs": jobs,
@@ -322,7 +370,6 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 			}
 		}
 		autoHost := filepath.Join(outDir, automationFilename)
-		// Isolate each local ZAP run to avoid cross-job conflicts when scans run concurrently.
 		zapHome := filepath.Join(outDir, ".zap-home")
 		zapHomeDir := filepath.Join(zapHome, ".ZAP_D")
 		if err := os.MkdirAll(zapHomeDir, 0o755); err != nil {

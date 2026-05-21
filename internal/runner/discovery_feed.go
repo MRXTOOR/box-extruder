@@ -12,7 +12,14 @@ import (
 	"github.com/box-extruder/dast/internal/storage"
 )
 
-func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.Evidence) []string {
+func discoveryPreserveQuery(cfg *config.ScanAsCode) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.Budgets.Discovery.PreserveQuery
+}
+
+func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.Evidence, preserveQuery bool) []string {
 	seen := make(map[string]struct{})
 	var out []string
 	for _, f := range findings {
@@ -32,7 +39,7 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 			if isAttackPayloadURL(raw) {
 				continue
 			}
-			u, ok := normalizeDiscoveryURL(raw)
+			u, ok := normalizeDiscoveryURL(raw, preserveQuery)
 			if !ok || u == "" {
 				continue
 			}
@@ -46,12 +53,14 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 	return out
 }
 
-func normalizeDiscoveryURL(raw string) (string, bool) {
+func normalizeDiscoveryURL(raw string, preserveQuery bool) (string, bool) {
 	u, err := parseURL(raw)
 	if err != nil {
 		return "", false
 	}
-	u.RawQuery = ""
+	if !preserveQuery {
+		u.RawQuery = ""
+	}
 	u.Fragment = ""
 	if u.Path == "" {
 		u.Path = "/"

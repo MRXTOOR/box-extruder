@@ -181,6 +181,24 @@ func WriteEndpointsTxt(workDir, jobID string, endpoints []string) error {
 	return os.WriteFile(filepath.Join(root, "reports", "endpoints.txt"), data, 0o644)
 }
 
+// WriteDiscoveredURLsTxt writes the full discovery feed (one URL per line).
+func WriteDiscoveredURLsTxt(workDir, jobID string, urls []string) error {
+	root := JobRoot(workDir, jobID)
+	if err := mkdirAll(filepath.Join(root, "reports")); err != nil {
+		return err
+	}
+	var b strings.Builder
+	for _, u := range urls {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		b.WriteString(u)
+		b.WriteByte('\n')
+	}
+	return os.WriteFile(filepath.Join(root, "reports", "discovered_urls.txt"), []byte(b.String()), 0o644)
+}
+
 func LoadEndpointsTxt(workDir, jobID string) ([]string, error) {
 	p := filepath.Join(JobRoot(workDir, jobID), "reports", "endpoints.txt")
 	data, err := os.ReadFile(p)

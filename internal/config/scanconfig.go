@@ -148,9 +148,11 @@ type Budgets struct {
 }
 
 type DiscoveryBudget struct {
-	MaxDepth          int `yaml:"maxDepth" json:"maxDepth"`
-	MaxURLs           int `yaml:"maxUrls" json:"maxUrls"`
-	DurationCrawlSecs int `yaml:"durationCrawlSecs" json:"durationCrawlSecs"`
+	MaxDepth          int  `yaml:"maxDepth" json:"maxDepth"`
+	MaxURLs           int  `yaml:"maxUrls" json:"maxUrls"`
+	DurationCrawlSecs int  `yaml:"durationCrawlSecs" json:"durationCrawlSecs"`
+	// PreserveQuery keeps query strings in discovery feed / nuclei targets (SPA API endpoints).
+	PreserveQuery bool `yaml:"preserveQuery,omitempty" json:"preserveQuery,omitempty"`
 }
 
 type PassiveBudget struct {
