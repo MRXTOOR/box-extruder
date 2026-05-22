@@ -68,6 +68,26 @@ func normalizeDiscoveryURL(raw string, preserveQuery bool) (string, bool) {
 	return u.String(), true
 }
 
+// mergeSeedURLs deduplicates and appends extra crawl seeds (e.g. Katana discovery before ZAP).
+func mergeSeedURLs(base, extra []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	var out []string
+	for _, list := range [][]string{base, extra} {
+		for _, u := range list {
+			u = strings.TrimSpace(u)
+			if u == "" {
+				continue
+			}
+			if _, ok := seen[u]; ok {
+				continue
+			}
+			seen[u] = struct{}{}
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 func feedAppend(seen map[string]struct{}, feed *[]string, urls []string) {
 	for _, u := range urls {
 		u = strings.TrimSpace(u)

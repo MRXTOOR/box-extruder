@@ -398,6 +398,13 @@ func runPipeline(opt Options) (string, error) {
 				break
 			}
 			zapSeeds := katanaSeedURLs(cfg)
+			if len(discoveryFeed) > 0 {
+				before := len(zapSeeds)
+				zapSeeds = mergeSeedURLs(zapSeeds, discoveryFeed)
+				if len(zapSeeds) > before {
+					emit(opt, jobID, "info", fmt.Sprintf("ZAP: %d seed URLs (%d from Katana discovery)", len(zapSeeds), len(zapSeeds)-before))
+				}
+			}
 			if len(zapSeeds) == 0 && len(cfg.Targets) > 0 {
 				zapSeeds = []string{cfg.Targets[0].BaseURL}
 			}

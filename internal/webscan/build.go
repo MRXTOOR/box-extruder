@@ -126,6 +126,22 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			}},
 		}
 	}
+	if len(cfg.Targets) > 0 {
+		var inferred []string
+		if cfg.Auth != nil {
+			for _, p := range cfg.Auth.Providers {
+				if p.GenericLogin != nil {
+					inferred = append(inferred, inferStartPointsFromLoginURL(p.GenericLogin.LoginURL)...)
+				}
+			}
+		}
+		if v := strings.TrimSpace(opts.VerifyURL); v != "" {
+			inferred = append(inferred, v)
+		}
+		if len(inferred) > 0 {
+			cfg.Targets[0].StartPoints = mergeStartPoints(cfg.Targets[0].StartPoints, inferred)
+		}
+	}
 
 	katanaStep := config.ScanStep{
 		StepType:        "katana",
