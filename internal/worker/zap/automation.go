@@ -19,6 +19,7 @@ import (
 const (
 	automationFilename = "automation.yaml"
 	reportFileName     = "zap-report.json"
+	autorunLogFileName = "zap-autorun.log"
 	dastContextName    = "dast"
 )
 
@@ -158,7 +159,7 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 			continue
 		}
 		rules = append(rules, map[string]any{
-			"description":         "DAST auth header " + name,
+			"description":       "DAST auth header " + name,
 			"matchType":         "req_header",
 			"matchRegex":        false,
 			"matchString":       name,
@@ -253,16 +254,6 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 			},
 		})
 	}
-	jobs = append(jobs, map[string]any{
-		"type": "export",
-		"parameters": map[string]any{
-			"context":   dastContextName,
-			"type":      "url",
-			"source":    "all",
-			"reportDir": reportDir,
-			"fileName":  urlsExportFileName,
-		},
-	})
 	if len(sqlProbes) > 0 {
 		jobs = append(jobs, map[string]any{
 			"type":       "requestor",
@@ -286,6 +277,18 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 			},
 		})
 	}
+	// Export after requestor/active scan so the saved site tree matches what ZAP discovered overall,
+	// not just the early crawl tree. Payload probes are filtered later when building the discovery feed.
+	jobs = append(jobs, map[string]any{
+		"type": "export",
+		"parameters": map[string]any{
+			"context":   dastContextName,
+			"type":      "url",
+			"source":    "all",
+			"reportDir": reportDir,
+			"fileName":  urlsExportFileName,
+		},
+	})
 	jobs = append(jobs, map[string]any{
 		"type": "report",
 		"parameters": map[string]any{
@@ -393,6 +396,7 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 			"ZAP_HOME="+zapHomeDir,
 		)
 		out, err := cmd.CombinedOutput()
+		_ = os.WriteFile(filepath.Join(outDir, autorunLogFileName), out, 0o644)
 		if err != nil {
 			return fmt.Errorf("zap local: %w\n%s", err, string(out))
 		}
@@ -416,6 +420,7 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 	cmd := exec.Command("docker", args...)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
+	_ = os.WriteFile(filepath.Join(outDir, autorunLogFileName), out, 0o644)
 	if err != nil {
 		return fmt.Errorf("zap docker automation: %w\n%s", err, string(out))
 	}

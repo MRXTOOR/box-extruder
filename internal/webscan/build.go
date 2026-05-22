@@ -160,8 +160,8 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			ZAPSpiderTraditional:   true,
 			// SPA targets (like Juice Shop) require Ajax spider to discover in-app routes/endpoints.
 			ZAPSpiderAjax:         true,
-			ZAPMaxSpiderMinutes:    zapSpiderMin,
-			ZAPPassiveWaitSeconds:  passiveWait,
+			ZAPMaxSpiderMinutes:   zapSpiderMin,
+			ZAPPassiveWaitSeconds: passiveWait,
 		},
 		{
 			StepType:                    "nucleiTemplates",
