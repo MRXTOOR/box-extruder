@@ -272,8 +272,7 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	resp := map[string]interface{}{
 		"id":         scan.ID,
 		"jobId":      scan.JobID,
 		"targetUrl":  scan.TargetURL,
@@ -281,7 +280,17 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 		"createdAt":  scan.CreatedAt,
 		"finishedAt": scan.FinishedAt,
 		"findings":   findings,
-	})
+	}
+	if j, err := storage.ReadJob(h.workDir, scan.JobID); err == nil {
+		if j.DiscoveryURLsCount > 0 {
+			resp["discoveryUrlsCount"] = j.DiscoveryURLsCount
+		}
+		if len(j.ScannedEndpoints) > 0 {
+			resp["endpointCount"] = len(j.ScannedEndpoints)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
@@ -451,19 +460,18 @@ func (h *Handler) handleReports(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"report-%s.docx\"", jobID[:8]))
 		w.Write(data)
 		return
-	case "endpoints":
-		endpointsPath := filepath.Join(reportsDir, "endpoints.txt")
-		data, err := os.ReadFile(endpointsPath)
-		if err != nil {
-			if j, readErr := storage.ReadJob(h.workDir, jobID); readErr == nil && len(j.ScannedEndpoints) > 0 {
-				data = []byte(strings.Join(j.ScannedEndpoints, "\n"))
-			} else {
-				http.Error(w, "endpoints not found", http.StatusNotFound)
-				return
-			}
+	case "endpoints", "discovered-urls":
+		data, err := loadScanURLListBytes(h.workDir, jobID)
+		if err != nil || len(data) == 0 {
+			http.Error(w, "endpoints not found", http.StatusNotFound)
+			return
+		}
+		name := "endpoints"
+		if format == "discovered-urls" {
+			name = "discovered_urls"
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"endpoints-%s.txt\"", jobID[:8]))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s-%s.txt\"", name, jobID[:8]))
 		w.Write(data)
 		return
 	default:
@@ -487,18 +495,53 @@ func (h *Handler) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jobID := scan.JobID
-	if endpoints, err := storage.LoadEndpointsTxt(h.workDir, jobID); err == nil && len(endpoints) > 0 {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(endpoints)
+	urls := loadScanURLList(h.workDir, jobID)
+	if len(urls) == 0 {
+		http.Error(w, "endpoints not found", http.StatusNotFound)
 		return
 	}
-	// Fallback for historical jobs where endpoints.txt is missing.
-	if j, err := storage.ReadJob(h.workDir, jobID); err == nil && len(j.ScannedEndpoints) > 0 {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(j.ScannedEndpoints)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(urls)
+}
+
+// loadScanURLList prefers full discovery feed, then endpoints.txt, then job.json.
+func loadScanURLList(workDir, jobID string) []string {
+	if urls, err := storage.LoadDiscoveredURLsTxt(workDir, jobID); err == nil && len(urls) > 0 {
+		return urls
+	}
+	if urls, err := storage.LoadEndpointsTxt(workDir, jobID); err == nil && len(urls) > 0 {
+		return urls
+	}
+	if j, err := storage.ReadJob(workDir, jobID); err == nil && len(j.ScannedEndpoints) > 0 {
+		return j.ScannedEndpoints
+	}
+	return nil
+}
+
+func loadScanURLListBytes(workDir, jobID string) ([]byte, error) {
+	urls := loadScanURLList(workDir, jobID)
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("no urls")
+	}
+	return []byte(strings.Join(urls, "\n") + "\n"), nil
+}
+
+func (h *Handler) handleDiscoveredURLs(w http.ResponseWriter, r *http.Request) {
+	scan, _, err := h.getScanForUser(r)
+	if err != nil {
+		writeScanAccessError(w, err)
 		return
 	}
-	http.Error(w, "endpoints not found", http.StatusNotFound)
+	urls, err := storage.LoadDiscoveredURLsTxt(h.workDir, scan.JobID)
+	if err != nil || len(urls) == 0 {
+		urls = loadScanURLList(h.workDir, scan.JobID)
+	}
+	if len(urls) == 0 {
+		http.Error(w, "discovered urls not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(urls)
 }
 
 func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {

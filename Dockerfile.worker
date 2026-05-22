@@ -8,7 +8,12 @@ RUN CGO_ENABLED=0 go build -o /dast-worker ./cmd/worker
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget jq bash unzip pandoc procps && \
+    ca-certificates curl wget jq bash unzip pandoc procps \
+    # Katana -headless (rod/Chromium) runtime dependencies
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+    libpango-1.0-0 libcairo2 libasound2 libx11-6 libx11-xcb1 libxcb1 libxext6 \
+    libxshmfence1 libglib2.0-0 fonts-liberation && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Java 21 from Adoptium
@@ -26,6 +31,10 @@ RUN mkdir -p /workspace/work /zap/wrk /zap-home/.ZAP
 # Tools installation
 RUN wget -q -O /tmp/katana.zip https://github.com/projectdiscovery/katana/releases/download/v1.5.0/katana_1.5.0_linux_amd64.zip && \
     unzip -o -q /tmp/katana.zip -d /tmp/ && mv /tmp/katana /usr/local/bin/katana && rm /tmp/katana.zip
+
+# Pre-download Chromium for Katana headless so first scan does not fail on launcher stdout noise.
+RUN mkdir -p /root/.cache/rod && \
+    (katana -u https://example.com -headless -d 1 -ct 25s -silent -jsonl 2>/dev/null || true)
 
 RUN wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download/w2026-04-14/ZAP_WEEKLY_D-2026-04-14.zip && \
     mkdir -p /opt/ZAP && unzip -q /tmp/zap.zip -d /opt/ZAP && \

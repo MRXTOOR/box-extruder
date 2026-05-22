@@ -19,6 +19,19 @@ func TestNormalizeDiscoveryURL_PreserveQuery(t *testing.T) {
 	}
 }
 
+func TestNucleiBasesFromTargets(t *testing.T) {
+	cfg := &config.ScanAsCode{
+		Targets: []config.Target{{
+			BaseURL:     "https://example.com",
+			StartPoints: []string{"https://example.com/app/dash", "https://example.com"},
+		}},
+	}
+	bases := nucleiBasesFromTargets(cfg)
+	if len(bases) != 2 {
+		t.Fatalf("want 2 bases (deduped), got %v", bases)
+	}
+}
+
 func TestHarvestPreservesQueryFromConfig(t *testing.T) {
 	cfg := &config.ScanAsCode{
 		Budgets: config.Budgets{

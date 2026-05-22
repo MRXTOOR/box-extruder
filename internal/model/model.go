@@ -111,7 +111,8 @@ type Job struct {
 	BudgetsPreset    string     `json:"budgetsPreset,omitempty"`
 	Steps            []JobStep  `json:"steps"`
 	Error            string     `json:"error,omitempty"`
-	ScannedEndpoints []string   `json:"scannedEndpoints,omitempty"`
+	ScannedEndpoints    []string `json:"scannedEndpoints,omitempty"`
+	DiscoveryURLsCount  int      `json:"discoveryUrlsCount,omitempty"`
 }
 
 // ContextSnapshot auth + scope without secrets.

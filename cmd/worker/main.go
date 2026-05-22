@@ -271,19 +271,45 @@ func findingsToDBRows(scanID string, raw []model.Finding) []db.Finding {
 func buildConfig(job *queue.JobMessage) *config.ScanAsCode {
 	cfg := config.DefaultScanAsCode()
 	cfg.Job.Name = job.JobID
+	target := strings.TrimSpace(job.TargetURL)
 	cfg.Targets = []config.Target{
 		{
 			Type:        "web",
-			BaseURL:     job.TargetURL,
-			StartPoints: []string{job.TargetURL},
+			BaseURL:     target,
+			StartPoints: []string{target},
 		},
 	}
 	cfg.Scope.Allow = []string{".*"}
 	cfg.Scope.Deny = nil
+	cfg.Budgets.Discovery.MaxDepth = 6
+	cfg.Budgets.Discovery.MaxURLs = 3000
+	cfg.Budgets.Discovery.DurationCrawlSecs = 120
+	cfg.Budgets.Discovery.PreserveQuery = true
 	cfg.Scan.Plan = []config.ScanStep{
-		{StepType: "katana", Enabled: true},
-		{StepType: "zapBaseline", Enabled: true, ZAPAutomationFramework: true, ZAPSpiderTraditional: true, ZAPSpiderAjax: true},
-		{StepType: "nucleiTemplates", Enabled: true, TemplatePaths: []string{"templates/example-banner.yaml"}},
+		{
+			StepType:        "katana",
+			Enabled:         true,
+			KatanaDepth:     6,
+			KatanaHeadless:  true,
+			KatanaExtraArgs: []string{"-jc"},
+		},
+		{
+			StepType:               "zapBaseline",
+			Enabled:                true,
+			ZAPAutomationFramework: true,
+			ZAPSpiderTraditional:   true,
+			ZAPSpiderAjax:          true,
+			ZAPMaxSpiderMinutes:    15,
+			ZAPPassiveWaitSeconds:  180,
+		},
+		{
+			StepType:                    "nucleiTemplates",
+			Enabled:                     true,
+			NucleiEngine:                "cli",
+			TemplatePaths:               []string{"/opt/nuclei-templates"},
+			NucleiIncludeDiscoveredURLs: true,
+			NucleiRateLimit:             50,
+		},
 	}
 	return &cfg
 }

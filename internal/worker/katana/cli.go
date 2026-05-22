@@ -141,36 +141,44 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
-	out := stdout.Bytes()
-	errMsg := strings.TrimSpace(stderr.String())
-	if runErr != nil {
-		detail := errMsg
-		if detail == "" {
-			detail = strings.TrimSpace(string(out))
-		}
-		if detail == "" {
-			detail = runErr.Error()
-		}
-		return nil, nil, fmt.Errorf("katana CLI: %w: %s", runErr, truncateRunMsg(detail, 4000))
-	}
-	if len(bytes.TrimSpace(out)) == 0 {
-		if errMsg == "" {
-			errMsg = "empty output"
-		}
-		return nil, nil, fmt.Errorf("katana CLI: no JSONL output: %s", truncateRunMsg(errMsg, 4000))
-	}
-	if !bytes.Contains(out, []byte("{")) {
-		if errMsg == "" {
-			errMsg = strings.TrimSpace(string(out))
-		}
-		return nil, nil, fmt.Errorf("katana CLI: unexpected non-JSON output: %s", truncateRunMsg(errMsg, 4000))
-	}
-	// Katana пишет в stderr предупреждения даже при успехе; не трактуем их как фатальную ошибку.
-	findings, evidence, perr := parseKatanaJSONL(out, opts.ContextID, opts.Dedupe)
+	combined := append(stdout.Bytes(), '\n')
+	combined = append(combined, stderr.Bytes()...)
+	findings, evidence, perr := parseKatanaJSONL(combined, opts.ContextID, opts.Dedupe)
 	if perr != nil {
 		return nil, nil, perr
 	}
-	return findings, evidence, nil
+	if len(findings) > 0 {
+		return findings, evidence, nil
+	}
+	detail := strings.TrimSpace(errMsg(stderr.String(), stdout.Bytes(), runErr))
+	if runErr != nil {
+		return nil, nil, fmt.Errorf("katana CLI: %w: %s", runErr, truncateRunMsg(detail, 4000))
+	}
+	if headlessBrowserSetupNoise(combined) {
+		return nil, nil, fmt.Errorf("katana headless: browser setup finished but no URLs were crawled (missing deps or timeout); retry without headless or pre-install chromium in the worker image: %s", truncateRunMsg(detail, 2000))
+	}
+	if len(bytes.TrimSpace(combined)) == 0 {
+		return nil, nil, fmt.Errorf("katana CLI: no JSONL output: %s", truncateRunMsg(detail, 4000))
+	}
+	return nil, nil, fmt.Errorf("katana CLI: no URLs in JSONL output: %s", truncateRunMsg(detail, 4000))
+}
+
+func errMsg(stderr string, stdout []byte, runErr error) string {
+	if s := strings.TrimSpace(stderr); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(string(stdout)); s != "" {
+		return s
+	}
+	if runErr != nil {
+		return runErr.Error()
+	}
+	return "empty output"
+}
+
+func headlessBrowserSetupNoise(b []byte) bool {
+	s := string(b)
+	return strings.Contains(s, "[launcher.Browser]") || strings.Contains(s, "rod/browser")
 }
 
 func truncateRunMsg(s string, n int) string {
@@ -220,7 +228,22 @@ func parseKatanaJSONL(raw []byte, ctxID string, dedupe config.DedupeConfig) ([]m
 		findings = append(findings, *f)
 		evidence = append(evidence, ev)
 	}
+	if err := sc.Err(); err != nil {
+		return nil, nil, fmt.Errorf("katana jsonl: %w", err)
+	}
 	return findings, evidence, nil
+}
+
+// HeadlessSetupLikely reports katana errors that are fixed by retrying without -headless.
+func HeadlessSetupLikely(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "headless") ||
+		strings.Contains(s, "[launcher.browser]") ||
+		strings.Contains(s, "rod/browser") ||
+		strings.Contains(s, "unexpected non-json")
 }
 
 func rowToModels(row katanaJSONLine, ctxID string, dedupe config.DedupeConfig, now time.Time) (*model.Finding, model.Evidence) {

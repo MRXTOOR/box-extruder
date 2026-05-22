@@ -141,6 +141,9 @@ func runPipeline(opt Options) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config required")
 	}
+	if applyLoopbackRemapForContainer(cfg) {
+		emit(opt, jobID, "info", "Localhost URLs remapped to host.docker.internal for container worker")
+	}
 	hash := storage.ConfigHashSHA256(opt.ConfigYAML)
 	created := time.Now().UTC()
 	if prev, err := storage.ReadJob(opt.WorkDir, jobID); err == nil && !prev.CreatedAt.IsZero() {
@@ -347,7 +350,18 @@ func runPipeline(opt Options) (string, error) {
 			}
 			kopts := katanaOptsFromStep(cfg, stepCfg, seeds, hdr)
 			kopts.ContextID = authRes.Context.ContextID
+			if kopts.Headless {
+				// First headless run may download Chromium (rod); allow extra wall-clock time.
+				kopts.Timeout = 20 * time.Minute
+			}
 			kf, ke, kerr := katana.RunCLI(kopts)
+			if kerr != nil && kopts.Headless && katana.HeadlessSetupLikely(kerr) {
+				emit(opt, jobID, "warn", "Katana headless failed — retrying without -headless (keep -jc for JS endpoints)")
+				retry := kopts
+				retry.Headless = false
+				retry.Timeout = 0
+				kf, ke, kerr = katana.RunCLI(retry)
+			}
 			if kerr != nil {
 				st.Status = model.StepFailed
 				st.Error = kerr.Error()
@@ -427,7 +441,16 @@ func runPipeline(opt Options) (string, error) {
 				emit(opt, jobID, "error", "ZAP: "+st.Error)
 				_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "error", "msg": st.Error, "step": string(st.StepType)})
 			} else {
-				emit(opt, jobID, "info", fmt.Sprintf("ZAP: findings %d", len(zf)))
+				zapDisc := 0
+				for _, f := range zf {
+					if f.RuleID == "zap:discovered-url" {
+						zapDisc++
+					}
+				}
+				emit(opt, jobID, "info", fmt.Sprintf("ZAP: findings %d (discovered URLs: %d)", len(zf), zapDisc))
+				if zapDisc == 0 {
+					emit(opt, jobID, "warn", "ZAP: export URL list empty — rebuild dast-worker image; until then only alert URLs feed Nuclei")
+				}
 				rawFindings = append(rawFindings, zf...)
 				for _, e := range ze {
 					e.ContextID = authRes.Context.ContextID
@@ -482,12 +505,7 @@ func runPipeline(opt Options) (string, error) {
 					emit(opt, jobID, "info", "Nuclei CLI: no existing template paths, skipping")
 					break
 				}
-				var bases []string
-				for _, t := range cfg.Targets {
-					if u := strings.TrimSpace(t.BaseURL); u != "" {
-						bases = append(bases, u)
-					}
-				}
+				bases := nucleiBasesFromTargets(cfg)
 				var listPath string
 				var werr error
 				if lf := strings.TrimSpace(stepCfg.NucleiListFile); lf != "" {
@@ -589,7 +607,8 @@ func runPipeline(opt Options) (string, error) {
 						emit(opt, jobID, "info", fmt.Sprintf("Nuclei (builtin): added origins from feed to bases (feed paths %d)", len(discoveryFeed)))
 					}
 				}
-				bases = nucleiBuiltinBases(cfg, bases, discoveryFeed, stepCfg.NucleiIncludeDiscoveredURLs)
+				builtinBases := nucleiBasesFromTargets(cfg)
+				bases = nucleiBuiltinBases(cfg, builtinBases, discoveryFeed, stepCfg.NucleiIncludeDiscoveredURLs)
 				nf, ne, _ := nuclei.Run(httpClient, bases, tpls, authRes.Context.ContextID, cfg.Noise.Dedupe, jobRoot)
 				emit(opt, jobID, "info", fmt.Sprintf("Nuclei templates: matches %d", len(nf)))
 				rawFindings = append(rawFindings, nf...)
@@ -690,7 +709,16 @@ func runPipeline(opt Options) (string, error) {
 	if preset == "" {
 		preset = "custom"
 	}
-	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, now, time.Now().UTC(), final, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, nil, scannedEndpoints)
+	reportEndpoints := scannedEndpoints
+	if len(discoveryFeed) > 0 {
+		reportEndpoints = discoveryFeed
+		job.DiscoveryURLsCount = len(discoveryFeed)
+		_ = storage.WriteDiscoveredURLsTxt(opt.WorkDir, jobID, discoveryFeed)
+		emit(opt, jobID, "info", fmt.Sprintf("Discovery: %d URLs written to reports/discovered_urls.txt", len(discoveryFeed)))
+	} else {
+		emit(opt, jobID, "warn", "Discovery feed empty — endpoints list will only include URLs from crawl evidence")
+	}
+	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, now, time.Now().UTC(), final, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, nil, reportEndpoints)
 	if err := storage.WriteReportMD(opt.WorkDir, jobID, md); err != nil {
 		return "", err
 	}
@@ -702,12 +730,8 @@ func runPipeline(opt Options) (string, error) {
 		ref = report.ResolveReferenceDoc(cfg.Outputs.Docx.TemplateRef, opt.WorkDir)
 	}
 	_ = report.PandocToDocxOptional(mdPath, docxPath, ref)
-	_ = report.WriteHTMLReport(cfg.Job.Name, baseURL, now, time.Now().UTC(), final, scannedEndpoints, htmlPath)
-	_ = storage.WriteEndpointsTxt(opt.WorkDir, jobID, scannedEndpoints)
-	if len(discoveryFeed) > 0 {
-		_ = storage.WriteDiscoveredURLsTxt(opt.WorkDir, jobID, discoveryFeed)
-		emit(opt, jobID, "info", fmt.Sprintf("Discovery: %d URLs written to reports/discovered_urls.txt", len(discoveryFeed)))
-	}
+	_ = report.WriteHTMLReport(cfg.Job.Name, baseURL, now, time.Now().UTC(), final, reportEndpoints, htmlPath)
+	_ = storage.WriteEndpointsTxt(opt.WorkDir, jobID, reportEndpoints)
 	emit(opt, jobID, "info", "Markdown saved; DOCX if pandoc in PATH, else reports/report.html for Word/LibreOffice")
 
 	partial := false
@@ -721,9 +745,8 @@ func runPipeline(opt Options) (string, error) {
 	} else {
 		job.Status = model.JobSucceeded
 	}
-	// Save scanned endpoints to job
-	if len(scannedEndpoints) > 0 {
-		job.ScannedEndpoints = scannedEndpoints
+	if len(reportEndpoints) > 0 {
+		job.ScannedEndpoints = reportEndpoints
 	}
 	finishJob(opt.WorkDir, job)
 	emit(opt, jobID, "info", "Done, job status: "+string(job.Status))

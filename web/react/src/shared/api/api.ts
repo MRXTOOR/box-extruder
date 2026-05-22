@@ -121,7 +121,12 @@ export const api = {
     return handleJsonResponse(res)
   },
 
-  async getReport(jobId: string, format: 'md' | 'html' | 'docx' | 'endpoints' = 'md'): Promise<{ blob: Blob; filename: string; contentType: string }> {
+  async getDiscoveredUrls(jobId: string): Promise<string[]> {
+    const res = await fetch(`${BASE_URL}/scans/${jobId}/discovered-urls`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async getReport(jobId: string, format: 'md' | 'html' | 'docx' | 'endpoints' | 'discovered-urls' = 'md'): Promise<{ blob: Blob; filename: string; contentType: string }> {
     const res = await fetch(`${BASE_URL}/scans/${jobId}/reports?format=${format}`, { headers: headers() })
     if (!res.ok) {
       await handleJsonResponse<unknown>(res)

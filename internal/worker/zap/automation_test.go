@@ -15,7 +15,7 @@ func TestBuildAutomationYAML_JobOrderAndSeeds(t *testing.T) {
 		ZAPSpiderAjax:        true,
 		ZAPMaxSpiderMinutes:  5,
 	}
-	yamlBytes, err := buildAutomationYAML(seeds, []string{`^https://example\.com(/.*)?$`}, step, "/zap/wrk", nil, nil, "/zap/wrk/zap-export-urls.txt")
+	yamlBytes, err := buildAutomationYAML(seeds, []string{`^https://example\.com(/.*)?$`}, step, "/zap/wrk", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -82,6 +82,33 @@ func feedAppend(seen map[string]struct{}, feed *[]string, urls []string) {
 	}
 }
 
+// nucleiBasesFromTargets returns baseUrl plus all startPoints for Nuclei target list seeds.
+func nucleiBasesFromTargets(cfg *config.ScanAsCode) []string {
+	if cfg == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, t := range cfg.Targets {
+		add(t.BaseURL)
+		for _, sp := range t.StartPoints {
+			add(sp)
+		}
+	}
+	return out
+}
+
 func nucleiTargetCap(cfg *config.ScanAsCode) int {
 	if cfg == nil {
 		return 500

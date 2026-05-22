@@ -90,8 +90,7 @@ func RunAutomation(
 		remapped = dedupeSeedURLs(remapped)
 		probeBase := remapped[0]
 		probes := BuildMergedPayloadProbes(probeBase, authHeaders, sqlPayloadPath, xssPayloadPath)
-		exportPath := filepath.Join(reportDir, urlsExportFileName)
-		yamlBytes, err = buildAutomationYAML(remapped, za, step, reportDir, authHeaders, probes, exportPath)
+		yamlBytes, err = buildAutomationYAML(remapped, za, step, reportDir, authHeaders, probes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -123,9 +122,12 @@ func RunAutomation(
 	findings = append(findings, f...)
 	evidence = append(evidence, e...)
 
-	if ef, ee, exErr := URLExportFindings(exportPath, contextID, dedupe); exErr == nil {
+	if ef, ee, exErr := URLExportFindings(exportPath, contextID, dedupe); exErr == nil && len(ef) > 0 {
 		findings = append(findings, ef...)
 		evidence = append(evidence, ee...)
+	} else if _, statErr := os.Stat(exportPath); statErr != nil {
+		// Export job missing or failed (old worker image or Import/Export add-on). Alerts-only feed remains.
+		_ = statErr
 	}
 	// runErr may be non-nil when probes time out but report/export exist
 	_ = runErr
@@ -175,7 +177,7 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 	}
 }
 
-func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any, exportFile string) ([]byte, error) {
+func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any) ([]byte, error) {
 	maxSpider := step.ZAPMaxSpiderMinutes
 	if maxSpider <= 0 {
 		maxSpider = 5
@@ -254,10 +256,11 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 	jobs = append(jobs, map[string]any{
 		"type": "export",
 		"parameters": map[string]any{
-			"context":  dastContextName,
-			"type":     "url",
-			"source":   "all",
-			"fileName": exportFile,
+			"context":   dastContextName,
+			"type":      "url",
+			"source":    "all",
+			"reportDir": reportDir,
+			"fileName":  urlsExportFileName,
 		},
 	})
 	if len(sqlProbes) > 0 {

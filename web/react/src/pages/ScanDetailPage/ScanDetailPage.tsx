@@ -367,7 +367,7 @@ export function ScanDetailPage() {
       >
         <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
           <div className={styles.modalHeader}>
-            <h3>Просканированные эндпоинты ({endpointsList.length})</h3>
+            <h3>Обнаруженные URL ({endpointsList.length})</h3>
             <button type="button" className={styles.btnClose} onClick={closeEndpointsModal}>&times;</button>
           </div>
           <div className={styles.modalBody}>

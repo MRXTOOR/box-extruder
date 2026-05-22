@@ -199,6 +199,22 @@ func WriteDiscoveredURLsTxt(workDir, jobID string, urls []string) error {
 	return os.WriteFile(filepath.Join(root, "reports", "discovered_urls.txt"), []byte(b.String()), 0o644)
 }
 
+func LoadDiscoveredURLsTxt(workDir, jobID string) ([]string, error) {
+	p := filepath.Join(JobRoot(workDir, jobID), "reports", "discovered_urls.txt")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out, nil
+}
+
 func LoadEndpointsTxt(workDir, jobID string) ([]string, error) {
 	p := filepath.Join(JobRoot(workDir, jobID), "reports", "endpoints.txt")
 	data, err := os.ReadFile(p)
