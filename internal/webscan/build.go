@@ -63,7 +63,9 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 		StartPoints: starts,
 	}}
 	cfg.Scope.Allow = []string{scopeRegexFromBase(baseTarget)}
-	cfg.Scope.Deny = nil
+	cfg.Scope.Deny = []string{
+		`.*\.(ttf|woff2?|eot|otf|png|jpg|jpeg|gif|svg|ico|webp|mp4|mp3|pdf|zip|gz)(\?.*)?$`,
+	}
 
 	// Deeper defaults for UI-driven scans (Katana uses budgets for -max-urls; step depth overrides -d).
 	cfg.Budgets.Discovery.MaxDepth = 6
@@ -159,9 +161,12 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			ZAPAutomationFramework: true,
 			ZAPSpiderTraditional:   true,
 			// SPA targets (like Juice Shop) require Ajax spider to discover in-app routes/endpoints.
-			ZAPSpiderAjax:         true,
-			ZAPMaxSpiderMinutes:   zapSpiderMin,
-			ZAPPassiveWaitSeconds: passiveWait,
+			ZAPSpiderAjax:           true,
+			ZAPMaxSpiderMinutes:     zapSpiderMin,
+			ZAPPassiveWaitSeconds:   passiveWait,
+			ZAPContextExcludeStatic: true,
+			ZAPAjaxEventWait:        1000,
+			ZAPAjaxReloadWait:       1000,
 		},
 		{
 			StepType:                    "nucleiTemplates",

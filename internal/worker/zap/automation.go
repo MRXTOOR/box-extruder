@@ -139,6 +139,58 @@ func useLocalZAP() bool {
 	return strings.TrimSpace(os.Getenv("DAST_ZAP_LOCAL")) == "1"
 }
 
+// staticSpiderSeedExts lists URL path suffixes that are never useful as spider seed pages.
+// JS/CSS/image files result in trivially-fast spider instances that waste concurrency.
+var staticSpiderSeedExts = []string{
+	".js", ".mjs", ".css", ".map",
+	".json", ".xml", ".txt",
+	".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".bmp",
+	".ttf", ".woff", ".woff2", ".eot", ".otf",
+	".pdf", ".zip", ".gz", ".tar", ".rar",
+	".mp4", ".mp3", ".avi", ".mov", ".webm",
+}
+
+// isPageLikeURL returns false for URLs whose path ends with a known static asset extension.
+// These should NOT be used as spider/spiderAjax seeds.
+func isPageLikeURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return true
+	}
+	p := strings.ToLower(u.Path)
+	for _, ext := range staticSpiderSeedExts {
+		if strings.HasSuffix(p, ext) {
+			return false
+		}
+	}
+	return true
+}
+
+// filterPageSeeds returns only page-like URLs from seeds, preserving order.
+// If the filter removes everything, the first seed is returned as-is (fallback).
+func filterPageSeeds(seeds []string) []string {
+	var out []string
+	for _, s := range seeds {
+		if isPageLikeURL(s) {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 && len(seeds) > 0 {
+		return seeds[:1]
+	}
+	return out
+}
+
+func buildSPAContextExcludePaths() []string {
+	return []string{
+		`.*/static/js/[^/]+\.js(\?.*)?$`,
+		`.*/static/css/[^/]+\.css(\?.*)?$`,
+		`.*/static/media/.*`,
+		`.*\.(ttf|woff2?|eot|otf|png|jpg|jpeg|gif|svg|ico|webp|mp4|mp3|pdf)(\?.*)?$`,
+		`.*/remoteEntry\.js(\?.*)?$`,
+	}
+}
+
 func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]any {
 	if len(authHeaders) == 0 {
 		return nil
@@ -192,7 +244,14 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 		passiveMin = 1
 	}
 
-	primary := seedURLs[0]
+	// Only use page-like URLs as spider seeds. Static assets (JS bundles, JSON, images) as
+	// seeds result in spider instances that exit in <1 second and waste concurrency budget.
+	pageSeeds := filterPageSeeds(seedURLs)
+
+	// primary is the canonical entry-point URL used for scope fallback and activeScan target.
+	// Use the first page-like seed so a JS file is never the active-scan target.
+	primary := pageSeeds[0]
+
 	include := make([]string, 0, len(allow)+1)
 	for _, a := range allow {
 		a = strings.TrimSpace(a)
@@ -215,8 +274,9 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 	if rj := buildReplacerJobFromAuthHeaders(authHeaders); rj != nil {
 		jobs = append(jobs, rj)
 	}
+
 	if useTrad {
-		for _, seed := range seedURLs {
+		for _, seed := range pageSeeds {
 			jobs = append(jobs, map[string]any{
 				"type": "spider",
 				"parameters": map[string]any{
@@ -234,17 +294,27 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 		},
 	})
 	if useAjax {
-		for _, seed := range seedURLs {
+		for _, seed := range pageSeeds {
+			ajaxParams := map[string]any{
+				"context":         dastContextName,
+				"url":             seed,
+				"maxDuration":     maxSpider,
+				"browserId":       browser,
+				"runOnlyIfModern": false,
+				"inScopeOnly":     true,
+			}
+			if step.ZAPAjaxEventWait > 0 {
+				ajaxParams["eventWait"] = step.ZAPAjaxEventWait
+			}
+			if step.ZAPAjaxReloadWait > 0 {
+				ajaxParams["reloadWait"] = step.ZAPAjaxReloadWait
+			}
+			if step.ZAPAjaxMaxCrawlStates > 0 {
+				ajaxParams["maxCrawlStates"] = step.ZAPAjaxMaxCrawlStates
+			}
 			jobs = append(jobs, map[string]any{
-				"type": "spiderAjax",
-				"parameters": map[string]any{
-					"context":         dastContextName,
-					"url":             seed,
-					"maxDuration":     maxSpider,
-					"browserId":       browser,
-					"runOnlyIfModern": false,
-					"inScopeOnly":     true,
-				},
+				"type":       "spiderAjax",
+				"parameters": ajaxParams,
 			})
 		}
 		jobs = append(jobs, map[string]any{
@@ -300,14 +370,19 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 		},
 	})
 
+	contextBlock := map[string]any{
+		"name":         dastContextName,
+		"urls":         seedURLs,
+		"includePaths": include,
+	}
+	if step.ZAPContextExcludeStatic {
+		contextBlock["excludePaths"] = buildSPAContextExcludePaths()
+	}
+
 	doc := map[string]any{
 		"env": map[string]any{
 			"contexts": []any{
-				map[string]any{
-					"name":         dastContextName,
-					"urls":         seedURLs,
-					"includePaths": include,
-				},
+				contextBlock,
 			},
 			"parameters": map[string]any{
 				"failOnError":      false,
@@ -376,9 +451,11 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 			}
 		}
 		autoHost := filepath.Join(outDir, automationFilename)
+		// Use the outDir itself as ZAP home so ZAP writes its own log files (zap.log) next to
+		// the report and export artifacts. Avoid the nested .ZAP_D path: the extra
+		// "-config dirs.home=..." flag was redundant with "-dir" and caused ZAP to ignore -dir.
 		zapHome := filepath.Join(outDir, ".zap-home")
-		zapHomeDir := filepath.Join(zapHome, ".ZAP_D")
-		if err := os.MkdirAll(zapHomeDir, 0o755); err != nil {
+		if err := os.MkdirAll(zapHome, 0o755); err != nil {
 			return fmt.Errorf("zap local home dir: %w", err)
 		}
 		port := pickFreeTCPPort()
@@ -386,17 +463,22 @@ func runZAPAutorun(outDir, dockerImage string, local bool, dockerExtra []string)
 			zapSh,
 			"-cmd",
 			"-port", strconv.Itoa(port),
-			"-dir", zapHomeDir,
-			"-config", "dirs.home="+zapHomeDir,
+			"-dir", zapHome,
 			"-autorun", autoHost,
 		)
 		cmd.Dir = outDir
 		cmd.Env = append(os.Environ(),
 			"HOME="+zapHome,
-			"ZAP_HOME="+zapHomeDir,
+			"ZAP_HOME="+zapHome,
 		)
 		out, err := cmd.CombinedOutput()
-		_ = os.WriteFile(filepath.Join(outDir, autorunLogFileName), out, 0o644)
+		// Always write the log regardless of success/failure so the output is inspectable.
+		if len(out) > 0 {
+			_ = os.WriteFile(filepath.Join(outDir, autorunLogFileName), out, 0o644)
+		} else {
+			// ZAP may write its own log to -dir; create a stub so the absence is obvious.
+			_ = os.WriteFile(filepath.Join(outDir, autorunLogFileName), []byte("(no stdout captured — see .zap-home/zap.log)\n"), 0o644)
+		}
 		if err != nil {
 			return fmt.Errorf("zap local: %w\n%s", err, string(out))
 		}

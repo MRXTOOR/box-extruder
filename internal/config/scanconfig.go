@@ -130,6 +130,11 @@ type ScanStep struct {
 	ZAPAutomationFile string `yaml:"zapAutomationFile,omitempty" json:"zapAutomationFile,omitempty"`
 	// browserId для spiderAjax, напр. firefox-headless, chrome-headless
 	ZAPAjaxBrowserID string `yaml:"zapAjaxBrowserId,omitempty" json:"zapAjaxBrowserId,omitempty"`
+	// SPA-optimised Ajax spider tuning.
+	ZAPContextExcludeStatic bool `yaml:"zapContextExcludeStatic,omitempty" json:"zapContextExcludeStatic,omitempty"`
+	ZAPAjaxEventWait        int  `yaml:"zapAjaxEventWait,omitempty" json:"zapAjaxEventWait,omitempty"`       // ms
+	ZAPAjaxReloadWait       int  `yaml:"zapAjaxReloadWait,omitempty" json:"zapAjaxReloadWait,omitempty"`     // ms
+	ZAPAjaxMaxCrawlStates   int  `yaml:"zapAjaxMaxCrawlStates,omitempty" json:"zapAjaxMaxCrawlStates,omitempty"`
 	// Katana (projectdiscovery/katana): краулинг, вывод -jsonl → находки INFO по URL.
 	KatanaDepth         int      `yaml:"katanaDepth,omitempty" json:"katanaDepth,omitempty"`
 	KatanaConcurrency   int      `yaml:"katanaConcurrency,omitempty" json:"katanaConcurrency,omitempty"`

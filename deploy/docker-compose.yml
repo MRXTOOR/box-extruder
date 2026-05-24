@@ -1,6 +1,3 @@
-# Запуск из корня репозитория: docker compose -f deploy/docker-compose.yml up -d
-# Или из этой папки: docker compose up -d
-
 services:
   postgres:
     image: postgres:15-alpine
