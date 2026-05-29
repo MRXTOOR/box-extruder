@@ -150,8 +150,16 @@ var staticSpiderSeedExts = []string{
 	".mp4", ".mp3", ".avi", ".mov", ".webm",
 }
 
-// isPageLikeURL returns false for URLs whose path ends with a known static asset extension.
-// These should NOT be used as spider/spiderAjax seeds.
+// apiPathPrefixes are URL path prefixes that indicate a JSON/REST API endpoint.
+// The Ajax spider opens URLs in a real browser: visiting an API endpoint shows raw JSON,
+// there are no navigation links, so the spider exits in <1 second — wasting concurrency.
+var apiPathPrefixes = []string{
+	"/api/", "/service/", "/locales/",
+}
+
+// isPageLikeURL returns false for URLs that are not useful as spider/spiderAjax seeds:
+//   - URLs ending with a known static asset extension (.js, .css, .png, …)
+//   - URLs whose path starts with an API/service prefix (return JSON, not HTML)
 func isPageLikeURL(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -160,6 +168,11 @@ func isPageLikeURL(rawURL string) bool {
 	p := strings.ToLower(u.Path)
 	for _, ext := range staticSpiderSeedExts {
 		if strings.HasSuffix(p, ext) {
+			return false
+		}
+	}
+	for _, prefix := range apiPathPrefixes {
+		if strings.HasPrefix(p, prefix) || strings.Contains(p, prefix) {
 			return false
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,7 +47,7 @@ func main() {
 	flag.IntVar(&cfg.Queue.Port, "redis-port", 6379, "Redis port")
 	flag.StringVar(&cfg.Queue.Password, "redis-pass", "", "Redis password")
 
-	flag.StringVar(&cfg.Auth.Secret, "jwt-secret", "changeme", "JWT secret key")
+	flag.StringVar(&cfg.Auth.Secret, "jwt-secret", envString("JWT_SECRET", ""), "JWT secret key")
 	flag.StringVar(&cfg.WorkDir, "work-dir", "/workspace/work", "Work directory")
 	flag.StringVar(&cfg.ListenAddr, "listen", ":8080", "Listen address")
 	flag.BoolVar(&cfg.Bootstrap.Enabled, "bootstrap-admin-enabled", envBool("BOOTSTRAP_ADMIN_ENABLED", false), "Enable bootstrap admin upsert on startup")
@@ -57,6 +58,9 @@ func main() {
 
 	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
 		log.Fatalf("Failed to create work dir: %v", err)
+	}
+	if err := validateJWTSecret(cfg.Auth.Secret); err != nil {
+		log.Fatalf("JWT secret configuration error: %v", err)
 	}
 
 	ctx := context.Background()
@@ -114,14 +118,21 @@ func main() {
 }
 
 type Handler struct {
-	pool    *db.Pool
-	rdb     *redis.Client
-	auth    *auth.Manager
-	workDir string
+	pool         *db.Pool
+	rdb          *redis.Client
+	auth         *auth.Manager
+	workDir      string
+	loginLimiter *loginAttemptLimiter
 }
 
 func NewHandler(pool *db.Pool, rdb *redis.Client, auth *auth.Manager, workDir string) *Handler {
-	return &Handler{pool: pool, rdb: rdb, auth: auth, workDir: workDir}
+	return &Handler{
+		pool:         pool,
+		rdb:          rdb,
+		auth:         auth,
+		workDir:      workDir,
+		loginLimiter: newLoginAttemptLimiter(5, 15*time.Minute),
+	}
 }
 
 func ensureBootstrapAdmin(ctx context.Context, pool *db.Pool, cfg BootstrapConfig) error {
@@ -187,10 +198,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/scans/{id}/endpoints", h.authMiddleware(h.handleEndpoints))
 	mux.HandleFunc("GET /api/v1/scans/{id}/discovered-urls", h.authMiddleware(h.handleDiscoveredURLs))
 
-	mux.HandleFunc("POST /api/v1/auth/discover", h.handleAuthDiscover)
+	mux.HandleFunc("POST /api/v1/auth/discover", h.adminOnly(h.handleAuthDiscover))
 
-	mux.HandleFunc("GET /api/v1/containers", h.authMiddleware(h.handleContainerStatus))
-	mux.HandleFunc("GET /api/v1/containers/logs", h.authMiddleware(h.handleContainerLogs))
+	mux.HandleFunc("GET /api/v1/containers", h.adminOnly(h.handleContainerStatus))
+	mux.HandleFunc("GET /api/v1/containers/logs", h.adminOnly(h.handleContainerLogs))
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -214,4 +225,30 @@ func (h *Handler) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), "user", claims)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+func (h *Handler) adminOnly(next http.HandlerFunc) http.HandlerFunc {
+	return h.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := r.Context().Value("user").(*auth.Claims)
+		if !ok || claims == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if claims.Role != "admin" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+}
+
+func validateJWTSecret(secret string) error {
+	s := strings.TrimSpace(secret)
+	if len(s) < 32 {
+		return fmt.Errorf("JWT_SECRET/jwt-secret must be at least 32 chars")
+	}
+	if strings.EqualFold(s, "changeme") {
+		return fmt.Errorf("JWT secret must not use default value")
+	}
+	return nil
 }

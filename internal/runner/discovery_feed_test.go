@@ -162,15 +162,54 @@ func TestIsAttackPayloadURL_XSSPatterns(t *testing.T) {
 
 func TestIsAttackPayloadURL_SQLiPatterns(t *testing.T) {
 	sqli := []string{
+		// basic boolean — ZAP requestor payloads
 		"https://example.com/?q=%27+OR+%271%27%3D%271",
 		"https://example.com/?q=%27+AND+%271%27%3D%272",
 		"https://example.com/?q=%27+OR+%271%27%3D%272",
 		"https://example.com/?q=%27+AND+1%3D1",
 		"https://example.com/api?q=%27+UNION+SELECT+null--",
+		// DDL — seen in d7c0fbea scan
+		"https://example.com/?q=%27%3B+CREATE+TABLE+test+%28id+INT%29%3B--",
+		"https://example.com/?q=%27%3B+SHUTDOWN%3B--",
+		// Oracle-specific — seen in d7c0fbea scan
+		"https://example.com/?q=%27+AND+UTL_INADDR.GET_HOST_ADDRESS%28%27attacker.com%27%29--",
+		// comment bypass — seen in d7c0fbea scan
+		"https://example.com/?q=%27+UNION%2F%2Afoo%2A%2FSELECT%2F%2Abar%2A%2Fnull%2Cnull--",
+		// blind SQLi — seen in d7c0fbea scan
+		"https://example.com/?q=%27+AND+ASCII%28SUBSTRING%28%28SELECT+DATABASE%28%29%29%2C1%2C1%29%29%3E65--",
+		// complex nested — seen in d7c0fbea scan
+		"https://example.com/login?returnUrl=%2F%3Fq%3D%2527%2BUNION%2BSELECT%2BIF%25281%253D1%252CLOAD_FILE%2528",
 	}
 	for _, u := range sqli {
 		if !isAttackPayloadURL(u) {
 			t.Errorf("should be attack payload: %s", u)
+		}
+	}
+}
+
+func TestIsAttackPayloadURL_XSSInPath(t *testing.T) {
+	// Katana -jc extracts JS string concatenations as URLs, e.g. /static/js/'+a+'
+	xssInPath := []string{
+		"https://sfera.example.ru/static/js/'+a+'",
+		"https://sfera.example.ru/path/<script>alert(1)</script>",
+	}
+	for _, u := range xssInPath {
+		if !isAttackPayloadURL(u) {
+			t.Errorf("XSS in path should be attack payload: %s", u)
+		}
+	}
+}
+
+func TestIsAttackPayloadURL_AnyQuoteInQ(t *testing.T) {
+	// Any ?q= or ?x= with a quote is a payload regardless of specific pattern.
+	quotedQ := []string{
+		"https://example.com/?q='test",
+		"https://example.com/?q=%27test",
+		"https://example.com/?x=\"oops",
+	}
+	for _, u := range quotedQ {
+		if !isAttackPayloadURL(u) {
+			t.Errorf("?q= with quote should be attack payload: %s", u)
 		}
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/box-extruder/dast/internal/storage"
 	"github.com/box-extruder/dast/internal/worker/katana"
 	"github.com/box-extruder/dast/internal/worker/nuclei"
+	"github.com/box-extruder/dast/internal/worker/wapiti"
 	zapworker "github.com/box-extruder/dast/internal/worker/zap"
 	"github.com/google/uuid"
 )
@@ -397,14 +398,13 @@ func runPipeline(opt Options) (string, error) {
 				emit(opt, jobID, "info", "Step zapBaseline: skipped (-skip-zap)")
 				break
 			}
+			// ZAP spiders only from the configured target base URLs and startPoints.
+			// The Katana discoveryFeed is NOT merged here: merging thousands of
+			// Katana-discovered URLs (including attack payloads from SQLi/XSS seeds) as
+			// ZAP spider seeds causes OOM kills and makes ZAP spider API JSON endpoints
+			// instead of navigating the SPA. Katana results go to Nuclei instead.
 			zapSeeds := katanaSeedURLs(cfg)
-			if len(discoveryFeed) > 0 {
-				before := len(zapSeeds)
-				zapSeeds = mergeSeedURLs(zapSeeds, discoveryFeed)
-				if len(zapSeeds) > before {
-					emit(opt, jobID, "info", fmt.Sprintf("ZAP: %d seed URLs (%d from Katana discovery)", len(zapSeeds), len(zapSeeds)-before))
-				}
-			}
+			emit(opt, jobID, "info", fmt.Sprintf("ZAP: %d seed URLs (configured targets only)", len(zapSeeds)))
 			if len(zapSeeds) == 0 && len(cfg.Targets) > 0 {
 				zapSeeds = []string{cfg.Targets[0].BaseURL}
 			}
@@ -479,6 +479,58 @@ func runPipeline(opt Options) (string, error) {
 				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(zf, evidenceByID, discoveryPreserveQuery(cfg)))
 				st.Metrics.FindingsRaw = len(zf)
 				st.Status = model.StepSucceeded
+			}
+		case model.StepWapiti:
+			target := ""
+			if len(cfg.Targets) > 0 {
+				target = strings.TrimSpace(cfg.Targets[0].BaseURL)
+			}
+			if target == "" {
+				st.Status = model.StepSkipped
+				emit(opt, jobID, "warn", "Wapiti: no target base URL, skipping")
+				break
+			}
+			wapitiDir := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "wapiti-out")
+			authHeaders := map[string]string{}
+			for k, v := range authRes.HeaderInject {
+				authHeaders[k] = v
+			}
+			if len(authHeaders) == 0 && cfg.Auth != nil {
+				emit(opt, jobID, "warn", "Wapiti: no Authorization/Cookie headers for target")
+			} else if len(authHeaders) > 0 {
+				keys := make([]string, 0, len(authHeaders))
+				for k := range authHeaders {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				emit(opt, jobID, "info", "Wapiti: request headers: "+strings.Join(keys, ", "))
+			}
+			emit(opt, jobID, "info", "Wapiti CLI (wapiti-scanner/wapiti)")
+			wf, we, werr := wapiti.RunCLI(wapiti.CLIOptions{
+				Target:                target,
+				OutDir:                wapitiDir,
+				ScanForce:             stepCfg.WapitiScanForce,
+				Timeout:               stepCfg.WapitiTimeout,
+				Headers:               authHeaders,
+				InsecureSkipTLSVerify: cfg.InsecureSkipTLSVerify,
+				ContextID:             authRes.Context.ContextID,
+				Dedupe:                cfg.Noise.Dedupe,
+			})
+			if werr != nil {
+				st.Status = model.StepFailed
+				st.Error = werr.Error()
+				emit(opt, jobID, "error", "Wapiti: "+st.Error)
+				_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "error", "msg": st.Error, "step": string(st.StepType)})
+			} else {
+				rawFindings = append(rawFindings, wf...)
+				for _, e := range we {
+					evidenceList = append(evidenceList, e)
+					evidenceByID[e.EvidenceID] = e
+				}
+				feedAppend(discoveryFeedSeen, &discoveryFeed, harvestHTTPURLsFromFindings(wf, evidenceByID, discoveryPreserveQuery(cfg)))
+				st.Metrics.FindingsRaw = len(wf)
+				st.Status = model.StepSucceeded
+				emit(opt, jobID, "info", fmt.Sprintf("Wapiti: findings %d", len(wf)))
 			}
 		case model.StepNucleiTemplates:
 			paths := resolveTemplatePaths(opt.ConfigFileDir, stepCfg.TemplatePaths, opt.WorkDir)
@@ -1115,73 +1167,104 @@ func extractEndpoint(e model.Evidence) string {
 
 func isAttackPayloadURL(rawURL string) bool {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.RawQuery == "" {
+	if err != nil {
 		return false
 	}
-	rawQ := strings.ToLower(u.RawQuery)
-	decodedQ := ""
-	if d, err := url.QueryUnescape(u.RawQuery); err == nil {
-		decodedQ = strings.ToLower(d)
-	}
+
 	xssPatterns := []string{
 		"alert(", "prompt(", "confirm(",
 		"document.cookie", "document.location", "document.write",
 		"string.fromcharcode", "eval(",
 		"<script", "%3cscript", "%3c%73cript",
-		"onerror=alert", "onerror=prompt", "onerror=confirm",
-		"onload=alert", "onload=prompt",
-		"javascript:alert", "javascript:prompt",
+		"onerror=", "onload=", "onerror%3d", "onload%3d",
+		"javascript:", "javascript%3a",
 		"data:text/html", "vbscript:",
 		"<svg/onload", "%3csvg/onload",
 		"<img/src", "%3cimg/src",
 		"<iframe", "%3ciframe",
 		"expression(alert",
+		// JS string concatenation extracted from source by Katana -jc
+		"'+", "+a+", "'+a+", "'+b+",
 	}
 	sqliPatterns := []string{
+		// basic boolean
 		"' or 1=1", "' and 1=1", "' union select", "' union all select",
-		"' insert into", "' drop table", "' truncate ",
 		" or 1=1", " and 1=1", " or '1'='1", " and '1'='1",
-		// false-condition variants generated by ZAP requestor (e.g. ' AND '1'='2)
 		" or '1'='2", " and '1'='2",
+		// DML / DDL
+		"' insert into", "' drop table", "' truncate ",
+		" create table", " drop table", " alter table",
+		"; shutdown", "'; shutdown",
+		// comment-based bypass (/*...*/ in SQL context)
+		"union/*", "select/*", "*/select", "*/from",
+		// time-based
 		"sleep(", "benchmark(", "waitfor delay", "waitfor time",
+		"pg_sleep(", "dbms_pipe.receive_message(", "rlike sleep(",
+		// error-based
+		"extractvalue(", "updatexml(", "exp(~",
+		// Oracle-specific
+		"utl_inaddr", "utl_http", "utl_file", "dbms_", "sys.all_tables",
+		"all_tables", "user_tables",
+		// blind boolean/time
+		"ascii(", "ascii%28", "substring(", "char(", "hex(",
+		"mid(", "ord(", "conv(", "bin(",
+		// OS / file
 		"xp_cmdshell", "xp_dirtree", "xp_fileexist",
 		"load_file(", "into outfile", "into dumpfile",
+		// metadata
 		"information_schema", "sysobjects", "syscolumns",
 		"@@version", "@@servername",
-		"convert(int", "cast(",
+		// misc
+		"convert(int", ";--", "'--",
+		// URL-encoded single-quote + semicolon (multi-statement)
+		"%27%3b", "%27%3B",
 	}
-	for _, q := range []string{rawQ, decodedQ} {
-		if q == "" {
+
+	// Check full URL (path + query) — handles XSS injected into path segments.
+	// Two decode passes handle double-encoded payloads like %2527 → %27 → '
+	fullRaw := strings.ToLower(rawURL)
+	fullDecoded := ""
+	if d, err := url.QueryUnescape(rawURL); err == nil {
+		fullDecoded = strings.ToLower(d)
+	}
+	fullDecoded2 := ""
+	if fullDecoded != "" {
+		if d, err := url.QueryUnescape(fullDecoded); err == nil {
+			fullDecoded2 = strings.ToLower(d)
+		}
+	}
+
+	for _, src := range []string{fullRaw, fullDecoded, fullDecoded2} {
+		if src == "" {
 			continue
 		}
 		for _, pat := range xssPatterns {
-			if strings.Contains(q, pat) {
+			if strings.Contains(src, strings.ToLower(pat)) {
 				return true
 			}
 		}
 		for _, pat := range sqliPatterns {
-			if strings.Contains(q, pat) {
+			if strings.Contains(src, strings.ToLower(pat)) {
 				return true
 			}
 		}
 	}
-	// Heuristic for generated active payload seeds (?q=... / ?x=...) that pollute endpoint list.
-	qs, _ := url.ParseQuery(u.RawQuery)
-	for key, vals := range qs {
-		k := strings.ToLower(strings.TrimSpace(key))
-		if k != "q" && k != "x" {
-			continue
-		}
-		for _, v := range vals {
-			v = strings.ToLower(strings.TrimSpace(v))
-			if v == "" {
+
+	// Heuristic: any ?q= or ?x= value containing a quote, semicolon or double-dash
+	// is almost certainly a payload regardless of specific pattern.
+	if u.RawQuery != "" {
+		qs, _ := url.ParseQuery(u.RawQuery)
+		for key, vals := range qs {
+			k := strings.ToLower(strings.TrimSpace(key))
+			if k != "q" && k != "x" {
 				continue
 			}
-			if strings.Contains(v, "<script") || strings.Contains(v, "javascript:") || strings.Contains(v, "onerror=") {
-				return true
-			}
-			if strings.Contains(v, "--") || strings.Contains(v, ";") || strings.Contains(v, "'") {
-				if containsAny(v, " union ", " select ", " insert ", " update ", " delete ", " drop ", " truncate ", " grant ", " declare ", " exec ", " xp_", " sp_", " waitfor ", " benchmark(", " sleep(") {
+			for _, v := range vals {
+				v = strings.ToLower(strings.TrimSpace(v))
+				if v == "" {
+					continue
+				}
+				if strings.ContainsAny(v, "'\"") || strings.Contains(v, "--") || strings.Contains(v, ";") {
 					return true
 				}
 			}

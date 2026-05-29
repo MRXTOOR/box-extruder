@@ -169,6 +169,12 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			ZAPAjaxReloadWait:       1000,
 		},
 		{
+			StepType:        "wapiti",
+			Enabled:         true,
+			WapitiScanForce: "normal",
+			WapitiTimeout:   900,
+		},
+		{
 			StepType:                    "nucleiTemplates",
 			Enabled:                     true,
 			NucleiEngine:                "cli",

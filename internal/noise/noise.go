@@ -110,6 +110,32 @@ func BuildLocationKeyFromHTTP(d config.DedupeConfig, method, rawURL string) stri
 	return loc
 }
 
+// EndpointURLFromLocationKey extracts the full URL (scheme, host, path, query) from a location key
+// such as "GET https://example.com/api/users?id=1".
+func EndpointURLFromLocationKey(locationKey string) string {
+	loc := strings.TrimSpace(locationKey)
+	if loc == "" {
+		return ""
+	}
+	parts := strings.Fields(loc)
+	if len(parts) == 0 {
+		return ""
+	}
+	raw := parts[len(parts)-1]
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	out := u.Scheme + "://" + u.Host
+	if p := u.EscapedPath(); p != "" {
+		out += p
+	}
+	if u.RawQuery != "" {
+		out += "?" + u.RawQuery
+	}
+	return out
+}
+
 func normalizeParamValue(v string) string {
 	if len(v) > 8 && isDigitOrHex(v) {
 		return "{id}"

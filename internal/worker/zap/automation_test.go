@@ -71,6 +71,25 @@ func spiderURLs(doc map[string]any, jobType string) []string {
 
 // ── isPageLikeURL ────────────────────────────────────────────────────────────
 
+func TestIsPageLikeURL_APIPathsExcluded(t *testing.T) {
+	// API and service endpoints return JSON — useless as Ajax spider seeds.
+	apiURLs := []string{
+		"https://sfera.example.ru/api/tenant/v1/user/routes",
+		"https://sfera.example.ru/api/profile/admin/v1/users/current",
+		"https://sfera.example.ru/api/common/widgets/v1/maintenance-mode?app=PPOR",
+		"https://sfera.example.ru/service/notif/socket.io",
+		"https://sfera.example.ru/service/notifications/api/v1/ui-resource-strings",
+		"https://sfera.example.ru/locales/translation/ru.json",
+		"https://sfera.example.ru/app/ppau/api/auth/login-formats",
+		"https://sfera.example.ru/app/home-page/api/tenant/v1/user/applications/menu",
+	}
+	for _, u := range apiURLs {
+		if isPageLikeURL(u) {
+			t.Errorf("API/service endpoint should not be a spider seed: %s", u)
+		}
+	}
+}
+
 func TestIsPageLikeURL_StaticExtensions(t *testing.T) {
 	static := []string{
 		"https://sfera.example.ru/static/js/main.abc123.js",
@@ -97,17 +116,14 @@ func TestIsPageLikeURL_StaticExtensions(t *testing.T) {
 }
 
 func TestIsPageLikeURL_PageURLs(t *testing.T) {
+	// These are SPA route pages that the Ajax spider should navigate.
+	// /api/ and /service/ are intentionally excluded (they return JSON, not HTML).
 	pages := []string{
 		"https://sfera.example.ru/",
 		"https://sfera.example.ru",
 		"https://sfera.example.ru/app/ppau/",
 		"https://sfera.example.ru/app/home-page",
 		"https://sfera.example.ru/app/orchestration/dashboard",
-		"https://sfera.example.ru/api/tenant/v1/user/routes",
-		"https://sfera.example.ru/api/profile/admin/v1/users/current",
-		"https://sfera.example.ru/service/notif/socket.io",
-		// query strings on page-like paths must pass
-		"https://sfera.example.ru/api/search?q=foo",
 		"https://sfera.example.ru/app/orchestration/agents?status=ONLINE",
 	}
 	for _, u := range pages {
@@ -175,10 +191,11 @@ func TestFilterPageSeeds_EmptyInput(t *testing.T) {
 }
 
 func TestFilterPageSeeds_AllPageURLs(t *testing.T) {
+	// /api/ paths are excluded (JSON endpoints); only SPA routes pass.
 	seeds := []string{"https://x.com/", "https://x.com/app", "https://x.com/api/v1"}
 	got := filterPageSeeds(seeds)
-	if len(got) != 3 {
-		t.Fatalf("all should pass, got %d", len(got))
+	if len(got) != 2 {
+		t.Fatalf("want 2 (root + /app), got %d: %v", len(got), got)
 	}
 }
 

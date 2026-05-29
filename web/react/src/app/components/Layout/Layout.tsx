@@ -30,13 +30,15 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
             <div>
               <h1>DAST</h1>
-              <p className="tagline">Автодетект логина, Katana → ZAP → Nuclei — один запуск из браузера.</p>
+              <p className="tagline">Автодетект логина, Katana → ZAP → Wapiti → Nuclei — один запуск из браузера.</p>
             </div>
           </div>
           <div className="pipeline" title="Цепочка сканирования">
             <span><span className="dot" aria-hidden="true"></span>Katana</span>
             <span className="arrow" aria-hidden="true">→</span>
             <span><span className="dot g" aria-hidden="true"></span>ZAP</span>
+            <span className="arrow" aria-hidden="true">→</span>
+            <span><span className="dot" aria-hidden="true"></span>Wapiti</span>
             <span className="arrow" aria-hidden="true">→</span>
             <span><span className="dot p" aria-hidden="true"></span>Nuclei</span>
           </div>

@@ -337,6 +337,14 @@
   line-height: 1.5;
 }
 
+.findingEndpoint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
 .empty {
   text-align: center;
   padding: 2rem;

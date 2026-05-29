@@ -64,8 +64,8 @@ func TestBuildScanYAML_PipelineAndDiscovery(t *testing.T) {
 	}
 	scan, _ := doc["scan"].(map[string]any)
 	plan, _ := scan["plan"].([]any)
-	if len(plan) != 3 {
-		t.Fatalf("plan steps: want 3 (katana,zap,nuclei), got %d", len(plan))
+	if len(plan) != 4 {
+		t.Fatalf("plan steps: want 4 (katana,zap,wapiti,nuclei), got %d", len(plan))
 	}
 	s0, _ := plan[0].(map[string]any)
 	if s0["stepType"] != "katana" || s0["katanaHeadless"] != true {
@@ -76,8 +76,12 @@ func TestBuildScanYAML_PipelineAndDiscovery(t *testing.T) {
 		t.Fatalf("step1: %v", s1["stepType"])
 	}
 	s2, _ := plan[2].(map[string]any)
-	if s2["stepType"] != "nucleiTemplates" {
+	if s2["stepType"] != "wapiti" {
 		t.Fatalf("step2: %v", s2["stepType"])
+	}
+	s3, _ := plan[3].(map[string]any)
+	if s3["stepType"] != "nucleiTemplates" {
+		t.Fatalf("step3: %v", s3["stepType"])
 	}
 }
 

@@ -68,6 +68,7 @@ export function ScansPage() {
         status.steps.forEach((step, i) => {
           const stepName = step.stepType === 'katana' ? 'Katana' :
                         step.stepType === 'zapBaseline' ? 'ZAP' :
+                        step.stepType === 'wapiti' ? 'Wapiti' :
                         step.stepType === 'nucleiCLI' ? 'Nuclei' : step.stepType
           const stepStatus = step.status === 'SUCCEEDED' ? '✓' :
                             step.status === 'RUNNING' ? '…' :

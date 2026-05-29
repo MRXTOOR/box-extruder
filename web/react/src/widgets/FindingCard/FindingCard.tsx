@@ -24,6 +24,9 @@ export const FindingCard: FC<FindingCardProps> = ({ finding }) => {
         </span>
       </div>
       <p className={styles.description}>{finding.description}</p>
+      {finding.endpointPath && (
+        <p className={styles.endpoint}>Endpoint: {finding.endpointPath}</p>
+      )}
       {finding.evidence && (
         <div className={styles.evidence}>
           <pre>{JSON.stringify(finding.evidence, null, 2)}</pre>

@@ -72,6 +72,7 @@ type Finding struct {
 	Severity    string         `json:"severity"`
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
+	EndpointPath string        `json:"endpointPath,omitempty"`
 	Evidence    map[string]any `json:"evidence,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 }
@@ -233,7 +234,7 @@ func DeleteScan(ctx context.Context, pool *pgxpool.Pool, jobID string) error {
 
 func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string) ([]Finding, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, scan_id, severity, name, description, evidence, created_at
+		`SELECT id, scan_id, severity, name, description, endpoint_path, evidence, created_at
 		 FROM findings WHERE scan_id = $1 ORDER BY created_at DESC`,
 		scanID,
 	)
@@ -245,7 +246,7 @@ func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string)
 	var findings []Finding
 	for rows.Next() {
 		var f Finding
-		if err := rows.Scan(&f.ID, &f.ScanID, &f.Severity, &f.Name, &f.Description, &f.Evidence, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ScanID, &f.Severity, &f.Name, &f.Description, &f.EndpointPath, &f.Evidence, &f.CreatedAt); err != nil {
 			return nil, err
 		}
 		findings = append(findings, f)
@@ -253,10 +254,10 @@ func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string)
 	return findings, nil
 }
 
-func InsertFinding(ctx context.Context, pool *pgxpool.Pool, scanID, severity, name, description string, evidence map[string]any) error {
+func InsertFinding(ctx context.Context, pool *pgxpool.Pool, scanID, severity, name, description, endpointPath string, evidence map[string]any) error {
 	_, err := pool.Exec(ctx,
-		`INSERT INTO findings (scan_id, severity, name, description, evidence) VALUES ($1, $2, $3, $4, $5)`,
-		scanID, severity, name, description, evidence,
+		`INSERT INTO findings (scan_id, severity, name, description, endpoint_path, evidence) VALUES ($1, $2, $3, $4, $5, $6)`,
+		scanID, severity, name, description, endpointPath, evidence,
 	)
 	return err
 }
@@ -274,8 +275,8 @@ func ReplaceFindingsForScan(ctx context.Context, pool *pgxpool.Pool, scanID stri
 	}
 	for _, f := range items {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO findings (scan_id, severity, name, description, evidence) VALUES ($1, $2, $3, $4, $5)`,
-			scanID, f.Severity, f.Name, f.Description, f.Evidence,
+			`INSERT INTO findings (scan_id, severity, name, description, endpoint_path, evidence) VALUES ($1, $2, $3, $4, $5, $6)`,
+			scanID, f.Severity, f.Name, f.Description, f.EndpointPath, f.Evidence,
 		); err != nil {
 			return err
 		}

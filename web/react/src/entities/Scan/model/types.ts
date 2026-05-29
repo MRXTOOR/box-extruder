@@ -27,6 +27,7 @@ export interface Finding {
   severity: FindingSeverity
   name: string
   description: string
+  endpointPath?: string
   evidence?: Record<string, unknown>
   createdAt: string
 }

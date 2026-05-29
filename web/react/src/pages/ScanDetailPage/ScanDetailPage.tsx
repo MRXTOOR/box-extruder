@@ -16,7 +16,7 @@ const statusLabels: Record<ScanStatus, string> = {
   CANCELED: 'Отменён',
 }
 
-const STEPS = ['Katana', 'ZAP Baseline', 'Nuclei']
+const STEPS = ['Katana', 'ZAP Baseline', 'Wapiti', 'Nuclei']
 
 const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'CANCELED', 'PARTIAL_SUCCESS']
 const RUNNING_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH']
@@ -187,6 +187,7 @@ export function ScanDetailPage() {
       let label = rawType
       if (rawType === 'katana') label = 'Katana'
       if (rawType === 'zapBaseline') label = 'ZAP Baseline'
+      if (rawType === 'wapiti') label = 'Wapiti'
       if (rawType === 'nucleiTemplates' || rawType === 'nucleiCLI') {
         seenNuclei.count += 1
         label = seenNuclei.count > 1 ? `Nuclei #${seenNuclei.count}` : 'Nuclei'
@@ -354,6 +355,9 @@ export function ScanDetailPage() {
                   </span>
                 </div>
                 <p className={styles.findingDesc}>{finding.description}</p>
+                {finding.endpointPath && (
+                  <p className={styles.findingEndpoint}>Endpoint: {finding.endpointPath}</p>
+                )}
               </div>
             ))
           )}

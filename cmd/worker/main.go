@@ -17,6 +17,7 @@ import (
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
 	"github.com/box-extruder/dast/internal/model"
+	"github.com/box-extruder/dast/internal/noise"
 	"github.com/box-extruder/dast/internal/runner"
 	"github.com/box-extruder/dast/internal/storage"
 	"github.com/redis/go-redis/v9"
@@ -262,6 +263,7 @@ func findingsToDBRows(scanID string, raw []model.Finding) []db.Finding {
 			Severity:    string(f.Severity),
 			Name:        name,
 			Description: desc,
+			EndpointPath: noise.EndpointURLFromLocationKey(f.LocationKey),
 			Evidence:    evidence,
 		})
 	}
@@ -301,6 +303,12 @@ func buildConfig(job *queue.JobMessage) *config.ScanAsCode {
 			ZAPSpiderAjax:          true,
 			ZAPMaxSpiderMinutes:    15,
 			ZAPPassiveWaitSeconds:  180,
+		},
+		{
+			StepType:        "wapiti",
+			Enabled:         true,
+			WapitiScanForce: "normal",
+			WapitiTimeout:   900,
 		},
 		{
 			StepType:                    "nucleiTemplates",

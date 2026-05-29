@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS findings (
     severity VARCHAR(50) NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
+    endpoint_path TEXT,
     evidence JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

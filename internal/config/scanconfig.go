@@ -143,6 +143,9 @@ type ScanStep struct {
 	KatanaCrawlDuration string   `yaml:"katanaCrawlDuration,omitempty" json:"katanaCrawlDuration,omitempty"` // например 90s, 2m (флаг -ct)
 	KatanaExtraArgs     []string `yaml:"katanaExtraArgs,omitempty" json:"katanaExtraArgs,omitempty"`
 	KatanaHeadless      bool     `yaml:"katanaHeadless,omitempty" json:"katanaHeadless,omitempty"`
+	// Wapiti (wapiti-scanner/wapiti): web app scanner, JSON report output.
+	WapitiScanForce string `yaml:"wapitiScanForce,omitempty" json:"wapitiScanForce,omitempty"` // low|medium|high or native (polite|normal|aggressive|...)
+	WapitiTimeout   int    `yaml:"wapitiTimeout,omitempty" json:"wapitiTimeout,omitempty"`       // max scan time seconds (--max-scan-time)
 }
 
 type Budgets struct {

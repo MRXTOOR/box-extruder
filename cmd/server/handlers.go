@@ -15,6 +15,7 @@ import (
 	"github.com/box-extruder/dast/internal/enterprise/auth"
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
+	"github.com/box-extruder/dast/internal/noise"
 	"github.com/box-extruder/dast/internal/storage"
 	"github.com/box-extruder/dast/internal/webscan"
 	"github.com/google/uuid"
@@ -24,6 +25,11 @@ import (
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	remoteKey := remoteAddrKey(r.RemoteAddr)
+	if h.loginLimiter != nil && !h.loginLimiter.allow(remoteKey) {
+		http.Error(w, "too many login attempts, try later", http.StatusTooManyRequests)
 		return
 	}
 
@@ -46,13 +52,22 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := db.GetUserByLogin(r.Context(), h.pool, req.Login)
 	if err != nil {
+		if h.loginLimiter != nil {
+			h.loginLimiter.fail(remoteKey)
+		}
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		if h.loginLimiter != nil {
+			h.loginLimiter.fail(remoteKey)
+		}
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
+	}
+	if h.loginLimiter != nil {
+		h.loginLimiter.reset(remoteKey)
 	}
 
 	token, err := h.auth.GenerateToken(user.ID, user.Login, user.Role)
@@ -257,6 +272,9 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	findings, _ := db.GetFindingsByScanID(r.Context(), h.pool, scan.ID)
+	for i := range findings {
+		findings[i] = enrichFindingEndpoint(findings[i])
+	}
 	// Fallback for scans completed before DB persistence was enabled.
 	if len(findings) == 0 && (scan.Status == "SUCCEEDED" || scan.Status == "PARTIAL_SUCCESS" || scan.Status == "FAILED") {
 		if fileFindings, err := storage.LoadFindingsJSON(h.workDir, scan.JobID, "findings-final.json"); err == nil {
@@ -267,6 +285,7 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 					Name:        f.Title,
 					Severity:    string(f.Severity),
 					Description: f.Description,
+					EndpointPath: noise.EndpointURLFromLocationKey(f.LocationKey),
 				})
 			}
 		}
@@ -565,6 +584,10 @@ func (h *Handler) handleAuthDiscover(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid target URL", http.StatusBadRequest)
 		return
 	}
+	if err := validateDiscoverTargetURL(req.TargetURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	res := discovery.DiscoverSurface(req.TargetURL, req.InsecureSkipTLSVerify)
 	w.Header().Set("Content-Type", "application/json")
@@ -789,4 +812,18 @@ func sanitizeMultilineInput(input string) string {
 	// Normalize Windows line endings to '\n' so server splitting is stable.
 	input = strings.ReplaceAll(input, "\r\n", "\n")
 	return input
+}
+
+func enrichFindingEndpoint(f db.Finding) db.Finding {
+	if strings.HasPrefix(f.EndpointPath, "http://") || strings.HasPrefix(f.EndpointPath, "https://") {
+		return f
+	}
+	if f.Evidence != nil {
+		if lk, ok := f.Evidence["locationKey"].(string); ok {
+			if full := noise.EndpointURLFromLocationKey(lk); full != "" {
+				f.EndpointPath = full
+			}
+		}
+	}
+	return f
 }
