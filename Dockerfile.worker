@@ -8,7 +8,7 @@ RUN CGO_ENABLED=0 go build -o /dast-worker ./cmd/worker
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget jq bash unzip pandoc procps git \
+    ca-certificates curl wget jq bash unzip pandoc wkhtmltopdf procps git \
     python3 python3-pip wapiti \
     # ZAP Ajax Spider needs a real browser when DAST_ZAP_LOCAL=1.
     firefox-esr \

@@ -130,6 +130,41 @@ curl -X POST http://localhost:8080/api/v1/scans/{id}/restart \
 - Findings после скана сохраняются воркером в таблицу `findings` (БД); файлы job остаются как артефакты.
 - `POST /scans/{id}/restart` — создаёт **новую** строку в `scans` с новым `jobId` и ставит задачу с исходным YAML-конфигом.
 
+## CI/CD: интеграция с Jenkins
+
+Для запуска сканирований из пайплайнов разработчиков есть Jenkins Shared Library
+в каталоге [`jenkins/`](jenkins/README.md). Разработчик подключает библиотеку и в
+одном шаге задаёт цель, данные авторизации, обработку сертификатов и настройки
+сканирования:
+
+```groovy
+@Library('dast') _
+
+dastScan(
+    apiUrl: 'http://dast-server:8080',
+    apiTokenCredentialId: 'dast-ci-consumer-api',  // UUID от dast-cli ci setup
+    target: 'https://staging.myapp.example.com',
+    login: 'user@example.com',
+    password: 'staging-secret',
+    failOn: 'HIGH'
+)
+```
+
+CI-токен выдаёт админ: `dast-cli ci setup --name=consumer-api --api-url=... --verify`.
+Шаблон для команд: `docs/examples/ci-token-handoff.yaml`.
+
+Сборка образа runner: `docker build -t appsec-dast/ci-runner:latest -f jenkins/Dockerfile jenkins/`
+
+Тесты без Jenkins: `bash jenkins/scripts/run-tests.sh` (smoke) или `DAST_FULL_SCAN=true` для полного ожидания.
+Локальный прогон: `cd jenkins && docker compose run --rm ci-runner`
+
+**Отчёты** после скана: **DOCX**, **PDF**, **HTML** (корпоративный шаблон как SAST/SCA, без Markdown).
+Шаблон Word: `internal/report/templates/enterprise-reference.docx`, пример —
+`docs/examples/dast-enterprise-report-example.md`.
+
+Шаг создаёт скан через API (в контейнере `ci-runner`), ждёт завершения, сохраняет отчёты
+и роняет билд по quality gate. Подробности — в [`jenkins/README.md`](jenkins/README.md).
+
 ## Конфигурация
 
 ### Docker Compose

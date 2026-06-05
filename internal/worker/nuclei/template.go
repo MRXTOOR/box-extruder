@@ -150,7 +150,7 @@ func Run(client *http.Client, bases []string, tpls []Template, ctxID string, ded
 						q.Set(block.PayloadQueryParam, line)
 						u.RawQuery = q.Encode()
 						fullURL := u.String()
-						f2, e2 := runOneHTTP(client, method, fullURL, block.Matchers, tpl, ctxID, dedupe, now)
+						f2, e2 := runOneHTTP(client, httpProbe{method: method, fullURL: fullURL, matchers: block.Matchers, tpl: tpl, ctxID: ctxID, dedupe: dedupe, now: now})
 						if f2 != nil {
 							findings = append(findings, *f2)
 							evidence = append(evidence, e2)
@@ -166,7 +166,7 @@ func Run(client *http.Client, bases []string, tpls []Template, ctxID string, ded
 					path = "/" + path
 				}
 				fullURL := base + path
-				f2, e2 := runOneHTTP(client, method, fullURL, block.Matchers, tpl, ctxID, dedupe, now)
+				f2, e2 := runOneHTTP(client, httpProbe{method: method, fullURL: fullURL, matchers: block.Matchers, tpl: tpl, ctxID: ctxID, dedupe: dedupe, now: now})
 				if f2 != nil {
 					findings = append(findings, *f2)
 					evidence = append(evidence, e2)
@@ -177,7 +177,20 @@ func Run(client *http.Client, bases []string, tpls []Template, ctxID string, ded
 	return findings, evidence, nil
 }
 
-func runOneHTTP(client *http.Client, method, fullURL string, matchers []Matcher, tpl Template, ctxID string, dedupe config.DedupeConfig, now time.Time) (*model.Finding, model.Evidence) {
+// httpProbe describes one HTTP request derived from a Nuclei template block.
+type httpProbe struct {
+	method   string
+	fullURL  string
+	matchers []Matcher
+	tpl      Template
+	ctxID    string
+	dedupe   config.DedupeConfig
+	now      time.Time
+}
+
+func runOneHTTP(client *http.Client, p httpProbe) (*model.Finding, model.Evidence) {
+	method, fullURL, matchers, tpl := p.method, p.fullURL, p.matchers, p.tpl
+	dedupe, now := p.dedupe, p.now
 	req, err := http.NewRequest(method, fullURL, nil)
 	if err != nil {
 		return nil, model.Evidence{}
@@ -218,7 +231,7 @@ func runOneHTTP(client *http.Client, method, fullURL string, matchers []Matcher,
 		EvidenceID: evID,
 		Type:       model.EvidenceHTTPRequestResponse,
 		StepType:   model.StepNucleiTemplates,
-		ContextID:  ctxID,
+		ContextID:  p.ctxID,
 		Payload: model.HTTPRequestResponsePayload{
 			Method:              method,
 			URL:                 fullURL,

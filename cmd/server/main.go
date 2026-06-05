@@ -209,28 +209,59 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	})
 }
 
+// contextKey is an unexported type for request-context keys to avoid collisions
+// with keys defined in other packages (go vet SA1029).
+type contextKey string
+
+const userContextKey contextKey = "user"
+
+// claimsFromContext returns the authenticated user's claims attached by authMiddleware.
+func claimsFromContext(ctx context.Context) (*auth.Claims, bool) {
+	c, ok := ctx.Value(userContextKey).(*auth.Claims)
+	if !ok || c == nil {
+		return nil, false
+	}
+	return c, true
+}
+
 func (h *Handler) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		const bearerPrefix = "Bearer "
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || len(authHeader) < 8 {
+		if !strings.HasPrefix(authHeader, bearerPrefix) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		token := authHeader[7:]
+		token := strings.TrimSpace(authHeader[len(bearerPrefix):])
 		claims, err := h.auth.ValidateToken(token)
 		if err != nil {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
+			claims, err = h.claimsFromCIToken(r.Context(), token)
+			if err != nil {
+				http.Error(w, "invalid token", http.StatusUnauthorized)
+				return
+			}
 		}
-		ctx := context.WithValue(r.Context(), "user", claims)
+		ctx := context.WithValue(r.Context(), userContextKey, claims)
 		next(w, r.WithContext(ctx))
 	}
 }
 
+func (h *Handler) claimsFromCIToken(ctx context.Context, secret string) (*auth.Claims, error) {
+	user, err := db.AuthenticateCIToken(ctx, h.pool, secret)
+	if err != nil {
+		return nil, err
+	}
+	return &auth.Claims{
+		UserID: user.ID,
+		Login:  user.Login,
+		Role:   user.Role,
+	}, nil
+}
+
 func (h *Handler) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	return h.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := r.Context().Value("user").(*auth.Claims)
-		if !ok || claims == nil {
+		claims, ok := claimsFromContext(r.Context())
+		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

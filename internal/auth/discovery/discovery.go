@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,23 +51,42 @@ func Discover(req Request) Result {
 			{Name: "password", Prompt: "Password", Required: true, Sensitive: true},
 		},
 	}
+	if verr := validateDiscoverCredentials(req); verr != "" {
+		out.Error = verr
+		return out
+	}
+
+	candidates := CandidateAuthURLs(req.TargetURL, req.AuthURL, req.InsecureSkipTLSVerify)
+	if len(candidates) == 0 {
+		out.Error = "no login URL candidates for target (set authUrl explicitly)"
+		return out
+	}
+
+	var last Result
+	for _, loginURL := range candidates {
+		reqTry := req
+		reqTry.AuthURL = loginURL
+		last = discoverAtLoginURL(reqTry)
+		if last.Verified {
+			return last
+		}
+	}
+	if last.Error == "" {
+		last.Error = "unable to authenticate: tried " + strconv.Itoa(len(candidates)) + " login URL(s); set authUrl or verifyUrl if needed"
+	}
+	last.Trace = dedupeTrace(last.Trace)
+	return last
+}
+
+func discoverAtLoginURL(req Request) Result {
+	out := Result{
+		InteractiveInputs: []config.AuthInteractiveInput{
+			{Name: "username", Prompt: "Username / Email", Required: true},
+			{Name: "password", Prompt: "Password", Required: true, Sensitive: true},
+		},
+	}
 	client := newHTTPClient(req.InsecureSkipTLSVerify)
-
-	_, err := normalizeBase(req.TargetURL)
-	if err != nil {
-		out.Error = "invalid targetUrl"
-		return out
-	}
-	if strings.TrimSpace(req.Login) == "" || strings.TrimSpace(req.Password) == "" {
-		out.Error = "login and password required"
-		return out
-	}
 	loginURL := strings.TrimSpace(req.AuthURL)
-	if loginURL == "" {
-		out.Error = "authUrl is required: enter the full login endpoint URL (URL auto-discovery was removed)"
-		return out
-	}
-
 	verifyURLs := candidateVerifyURLs(strings.TrimSpace(req.VerifyURL))
 	contentTypes := []string{"application/json", "application/x-www-form-urlencoded"}
 	userFields := []string{"email", "username", "login", "user", "identifier", "phone", "mobile"}
@@ -75,72 +95,118 @@ func Discover(req Request) Result {
 	for _, ct := range contentTypes {
 		for _, uf := range userFields {
 			for _, pf := range passFields {
-				authHeader, cookieHeader, body, ok, trace := tryLogin(client, loginURL, ct, uf, pf, req.Login, req.Password)
-				out.Trace = append(out.Trace, trace...)
-				if !ok {
-					continue
+				combo := discoverCombo{
+					loginURL:    loginURL,
+					contentType: ct,
+					userField:   uf,
+					passField:   pf,
+					verifyURLs:  verifyURLs,
 				}
-				tokenPath, _, tokenType := extractTokenWithPath(body)
-				glBase := &config.GenericLoginConfig{
-					LoginURL:             loginURL,
-					LoginMethod:          http.MethodPost,
-					ContentType:          ct,
-					CredentialFields:     map[string]string{"username": uf, "password": pf},
-					TokenHeaderName:      "Authorization",
-					VerifyMethod:         http.MethodGet,
-					VerifyExpectedStatus: http.StatusOK,
-				}
-				if authHeader == "" {
-					glBase.UseCookies = true
-				} else {
-					glBase.TokenPath = tokenPath
-					if tt := strings.TrimSpace(tokenType); tt != "" {
-						glBase.TokenType = normalizeTokenType(tt)
-					} else {
-						glBase.TokenType = "Bearer"
-					}
-				}
-
-				if len(verifyURLs) == 0 {
-					if authHeader == "" && cookieHeader == "" {
-						continue
-					}
-					out.Verified = true
-					out.GenericLogin = glBase
+				if tryDiscoverCombo(client, req, combo, &out) {
 					out.Trace = dedupeTrace(out.Trace)
 					return out
-				}
-
-				for _, vURL := range verifyURLs {
-					status, verr := tryVerify(client, vURL, authHeader, cookieHeader)
-					step := TraceStep{
-						Stage:   "verify",
-						URL:     vURL,
-						Method:  http.MethodGet,
-						Detail:  fmt.Sprintf("status=%d", status),
-						Success: verr == nil && status == http.StatusOK,
-					}
-					if verr != nil {
-						step.Detail = verr.Error()
-					}
-					out.Trace = append(out.Trace, step)
-					if verr == nil && status == http.StatusOK {
-						gl := *glBase
-						gl.VerifyURL = vURL
-						out.Verified = true
-						out.VerifyURL = vURL
-						out.VerifyStatus = status
-						out.GenericLogin = &gl
-						out.Trace = dedupeTrace(out.Trace)
-						return out
-					}
 				}
 			}
 		}
 	}
-	out.Error = "unable to complete auth with the given authUrl (check credentials, content type, field names, or set verifyUrl)"
+	out.Error = "unable to complete auth at " + loginURL
 	out.Trace = dedupeTrace(out.Trace)
 	return out
+}
+
+// validateDiscoverCredentials checks target and credentials before trying login URLs.
+func validateDiscoverCredentials(req Request) string {
+	if _, err := normalizeBase(req.TargetURL); err != nil {
+		return "invalid targetUrl"
+	}
+	if strings.TrimSpace(req.Login) == "" || strings.TrimSpace(req.Password) == "" {
+		return "login and password required"
+	}
+	return ""
+}
+
+// discoverCombo is one credential field/content-type combination to attempt.
+type discoverCombo struct {
+	loginURL    string
+	contentType string
+	userField   string
+	passField   string
+	verifyURLs  []string
+}
+
+// tryDiscoverCombo attempts one credential field/content-type combination and
+// returns true when a working configuration was found and stored in out.
+func tryDiscoverCombo(client *http.Client, req Request, combo discoverCombo, out *Result) bool {
+	authHeader, cookieHeader, body, ok, trace := tryLogin(client, loginAttempt{
+		loginURL:    combo.loginURL,
+		contentType: combo.contentType,
+		userField:   combo.userField,
+		passField:   combo.passField,
+		login:       req.Login,
+		password:    req.Password,
+	})
+	out.Trace = append(out.Trace, trace...)
+	if !ok {
+		return false
+	}
+	tokenPath, _, tokenType := extractTokenWithPath(body)
+	glBase := &config.GenericLoginConfig{
+		LoginURL:             combo.loginURL,
+		LoginMethod:          http.MethodPost,
+		ContentType:          combo.contentType,
+		CredentialFields:     map[string]string{"username": combo.userField, "password": combo.passField},
+		TokenHeaderName:      "Authorization",
+		VerifyMethod:         http.MethodGet,
+		VerifyExpectedStatus: http.StatusOK,
+	}
+	if authHeader == "" {
+		glBase.UseCookies = true
+	} else {
+		glBase.TokenPath = tokenPath
+		glBase.TokenType = "Bearer"
+		if tt := strings.TrimSpace(tokenType); tt != "" {
+			glBase.TokenType = normalizeTokenType(tt)
+		}
+	}
+
+	if len(combo.verifyURLs) == 0 {
+		if authHeader == "" && cookieHeader == "" {
+			return false
+		}
+		out.Verified = true
+		out.GenericLogin = glBase
+		return true
+	}
+	return discoverVerify(client, combo.verifyURLs, authHeader, cookieHeader, glBase, out)
+}
+
+// discoverVerify probes the candidate verify URLs and records the first that
+// confirms the session.
+func discoverVerify(client *http.Client, verifyURLs []string, authHeader, cookieHeader string, glBase *config.GenericLoginConfig, out *Result) bool {
+	for _, vURL := range verifyURLs {
+		status, verr := tryVerify(client, vURL, authHeader, cookieHeader)
+		step := TraceStep{
+			Stage:   "verify",
+			URL:     vURL,
+			Method:  http.MethodGet,
+			Detail:  fmt.Sprintf("status=%d", status),
+			Success: verr == nil && status == http.StatusOK,
+		}
+		if verr != nil {
+			step.Detail = verr.Error()
+		}
+		out.Trace = append(out.Trace, step)
+		if verr == nil && status == http.StatusOK {
+			gl := *glBase
+			gl.VerifyURL = vURL
+			out.Verified = true
+			out.VerifyURL = vURL
+			out.VerifyStatus = status
+			out.GenericLogin = &gl
+			return true
+		}
+	}
+	return false
 }
 
 func newHTTPClient(insecure bool) *http.Client {
@@ -175,9 +241,20 @@ func dedupeTrace(steps []TraceStep) []TraceStep {
 	return out
 }
 
+// loginAttempt describes a single credential-submission attempt.
+type loginAttempt struct {
+	loginURL    string
+	contentType string
+	userField   string
+	passField   string
+	login       string
+	password    string
+}
+
 // tryLogin returns auth Bearer header (if JSON token found), Set-Cookie aggregate, response body on 2xx.
-func tryLogin(client *http.Client, loginURL, contentType, userField, passField, login, password string) (string, string, []byte, bool, []TraceStep) {
-	reqFields := map[string]string{userField: login, passField: password}
+func tryLogin(client *http.Client, a loginAttempt) (string, string, []byte, bool, []TraceStep) {
+	loginURL, contentType := a.loginURL, a.contentType
+	reqFields := map[string]string{a.userField: a.login, a.passField: a.password}
 	var body io.Reader
 	switch contentType {
 	case "application/x-www-form-urlencoded":

@@ -1,0 +1,28 @@
+# Handoff template for development teams (after AppSec admin runs dast-cli ci setup).
+# Store ci_token in Jenkins as Secret text — never commit to git.
+
+dast:
+  api_url: https://dast.corp.example
+  ci_token: dast_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Jenkins Secret text credential
+  jenkins_credential_id: dast-ci-consumer-api
+
+scan:
+  target_url: https://my-service.example.com
+  auth_url: https://my-service.example.com/api/v1/auth/login   # optional; auto-discovery if omitted
+  app_login_credential_id: myapp-staging-login                 # Jenkins Username/Password
+  preset: Fast
+  fail_on: HIGH
+  report_formats:
+    - docx
+    - html
+    - pdf
+
+# Jenkins pipeline snippet:
+#   dastScan(
+#       apiUrl: 'https://dast.corp.example',
+#       apiTokenCredentialId: 'dast-ci-consumer-api',
+#       target: 'https://my-service.example.com',
+#       authUrl: 'https://my-service.example.com/api/v1/auth/login',
+#       appAuthCredentialsId: 'myapp-staging-login',
+#       failOn: 'HIGH',
+#   )

@@ -74,6 +74,81 @@
   flex-wrap: wrap;
 }
 
+.date {
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.timeEstimate {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  width: 100%;
+  max-width: 420px;
+}
+
+.timeEstimateIcon {
+  flex-shrink: 0;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.timeEstimateText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.timeEstimateSummary {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.timeEstimateDetail {
+  font-size: 0.78rem;
+  color: var(--dim);
+}
+
+.progressBlock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.progressTrack {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(110, 118, 129, 0.25);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), #79c0ff);
+  transition: width 0.4s ease;
+}
+
+.progressLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dim);
+  min-width: 2.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .status {
   display: inline-block;
   padding: 0.2rem 0.5rem;
@@ -185,8 +260,24 @@
 }
 
 .stepDot {
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 2px;
+}
+
+.stepDotIcon {
+  flex-shrink: 0;
+}
+
+.stepSpin {
+  animation: stepSpin 0.9s linear infinite;
+}
+
+@keyframes stepSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .stepInfo {

@@ -3,19 +3,15 @@ package report
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/box-extruder/dast/internal/model"
 )
 
-func RenderDocxOptional(jobName, baseURL string, started, finished time.Time, findings []model.Finding, scannedEndpoints []string, outputPath string) error {
-	htmlPath := filepath.Join(filepath.Dir(outputPath), "report.html")
-	return WriteHTMLReport(jobName, baseURL, started, finished, findings, nil, htmlPath)
-}
-
-func WriteHTMLReport(jobName, baseURL string, started, finished time.Time, findings []model.Finding, scannedEndpoints []string, htmlPath string) error {
+func WriteHTMLReport(d Data, htmlPath string) error {
+	jobName, baseURL := d.JobName, d.BaseURL
+	started, finished := d.Started, d.Finished
+	findings := d.Findings
 	var html strings.Builder
 
 	html.WriteString(`<!DOCTYPE html>
@@ -99,19 +95,6 @@ tr:hover td { background: #f6f8fa; }
 		bySev[model.SeverityLow],
 		bySev[model.SeverityInfo],
 	))
-
-	if len(scannedEndpoints) > 0 {
-		html.WriteString(fmt.Sprintf(`
-<div class="card">
-  <h2>Просканированные эндпоинты</h2>
-  <p>Всего просканировано эндпоинтов: <strong>%d</strong></p>
-  <table><thead><tr><th>#</th><th>Endpoint</th></tr></thead><tbody>
-`, len(scannedEndpoints)))
-		for i, ep := range scannedEndpoints {
-			html.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"endpoint-url\">%s</span></td></tr>\n", i+1, escapeHTML(ep)))
-		}
-		html.WriteString("</tbody></table></div>\n")
-	}
 
 	html.WriteString(`
 <div class="card">

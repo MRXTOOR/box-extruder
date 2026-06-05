@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/box-extruder/dast/internal/enterprise/docker"
@@ -20,9 +19,7 @@ func (h *Handler) handleContainerStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(statuses)
+	writeJSON(w, http.StatusOK, statuses)
 }
 
 func (h *Handler) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +41,5 @@ func (h *Handler) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"logs": logs})
+	writeJSON(w, http.StatusOK, map[string]string{"logs": logs})
 }

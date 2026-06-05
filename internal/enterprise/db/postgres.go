@@ -19,13 +19,20 @@ type Config struct {
 }
 
 func Connect(cfg Config) (*pgxpool.Pool, error) {
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
-
-	poolCfg, err := pgxpool.ParseConfig(dsn)
+	// Build the connection config from struct fields rather than an inline
+	// URL-style DSN: this keeps credentials out of a formatted string and avoids
+	// URL-encoding pitfalls for passwords with special characters.
+	// sslmode=disable is expressed via a nil TLSConfig.
+	poolCfg, err := pgxpool.ParseConfig("")
 	if err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	poolCfg.ConnConfig.Host = cfg.Host
+	poolCfg.ConnConfig.Port = uint16(cfg.Port)
+	poolCfg.ConnConfig.User = cfg.User
+	poolCfg.ConnConfig.Password = cfg.Password
+	poolCfg.ConnConfig.Database = cfg.DBName
+	poolCfg.ConnConfig.TLSConfig = nil
 
 	poolCfg.MaxConns = 10
 	poolCfg.MinConns = 2
@@ -252,14 +259,6 @@ func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string)
 		findings = append(findings, f)
 	}
 	return findings, nil
-}
-
-func InsertFinding(ctx context.Context, pool *pgxpool.Pool, scanID, severity, name, description, endpointPath string, evidence map[string]any) error {
-	_, err := pool.Exec(ctx,
-		`INSERT INTO findings (scan_id, severity, name, description, endpoint_path, evidence) VALUES ($1, $2, $3, $4, $5, $6)`,
-		scanID, severity, name, description, endpointPath, evidence,
-	)
-	return err
 }
 
 // ReplaceFindingsForScan deletes existing findings for a scan and inserts the new set.

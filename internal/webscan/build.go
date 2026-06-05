@@ -46,10 +46,25 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	}
 	cfg.InsecureSkipTLSVerify = opts.InsecureSkipTLSVerify
 
+	applyTargetsAndScope(&cfg, target, baseTarget, opts.StartPoints)
+	katDepth := applyDiscoveryBudgets(&cfg, opts)
+	zapSpiderMin, passiveWait := zapTimings(opts)
+
+	if err := applyAuth(&cfg, opts, baseTarget); err != nil {
+		return nil, err
+	}
+	applyInferredStartPoints(&cfg, opts)
+
+	cfg.Scan.Plan = buildScanPlan(katDepth, zapSpiderMin, passiveWait)
+	cfg.NucleiFollowUp = nil
+	return yaml.Marshal(cfg)
+}
+
+// applyTargetsAndScope seeds the target start points and scope allow/deny rules.
+func applyTargetsAndScope(cfg *config.ScanAsCode, target, baseTarget string, startPoints []string) {
 	starts := []string{target}
-	for _, sp := range opts.StartPoints {
-		sp = strings.TrimSpace(sp)
-		if sp != "" {
+	for _, sp := range startPoints {
+		if sp = strings.TrimSpace(sp); sp != "" {
 			starts = append(starts, sp)
 		}
 	}
@@ -66,7 +81,11 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	cfg.Scope.Deny = []string{
 		`.*\.(ttf|woff2?|eot|otf|png|jpg|jpeg|gif|svg|ico|webp|mp4|mp3|pdf|zip|gz)(\?.*)?$`,
 	}
+}
 
+// applyDiscoveryBudgets sets the crawl budgets (with UI overrides) and returns
+// the effective Katana depth.
+func applyDiscoveryBudgets(cfg *config.ScanAsCode, opts CreateOptions) int {
 	// Deeper defaults for UI-driven scans (Katana uses budgets for -max-urls; step depth overrides -d).
 	cfg.Budgets.Discovery.MaxDepth = 6
 	cfg.Budgets.Discovery.MaxURLs = 3000
@@ -78,83 +97,95 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 	if opts.KatanaMaxURLs != nil && *opts.KatanaMaxURLs > 0 {
 		cfg.Budgets.Discovery.MaxURLs = *opts.KatanaMaxURLs
 	}
+	return cfg.Budgets.Discovery.MaxDepth
+}
 
-	katDepth := cfg.Budgets.Discovery.MaxDepth
-	zapSpiderMin := 15
+// zapTimings resolves the ZAP spider minutes and passive wait seconds.
+func zapTimings(opts CreateOptions) (spiderMinutes, passiveWaitSecs int) {
+	spiderMinutes = 15
 	if opts.ZapSpiderMinutes != nil && *opts.ZapSpiderMinutes > 0 {
-		zapSpiderMin = *opts.ZapSpiderMinutes
+		spiderMinutes = *opts.ZapSpiderMinutes
 	}
-	passiveWait := 180
+	passiveWaitSecs = 180
 	if opts.ZapPassiveSecs != nil && *opts.ZapPassiveSecs > 0 {
-		passiveWait = *opts.ZapPassiveSecs
+		passiveWaitSecs = *opts.ZapPassiveSecs
 	}
+	return spiderMinutes, passiveWaitSecs
+}
 
+// applyAuth runs login discovery and wires the generic-login provider when
+// credentials are supplied.
+func applyAuth(cfg *config.ScanAsCode, opts CreateOptions, baseTarget string) error {
 	login := strings.TrimSpace(opts.Login)
 	// Keep password as-is: leading/trailing spaces can be part of valid credentials.
 	pass := opts.Password
-	authURL := strings.TrimSpace(opts.AuthURL)
-	if login != "" || pass != "" {
-		if login == "" || pass == "" {
-			return nil, fmt.Errorf("login and password are both required for authenticated scan")
-		}
-		if authURL == "" {
-			return nil, fmt.Errorf("authUrl is required when using credentials (login URL auto-discovery was removed)")
-		}
-		disc := discovery.Discover(discovery.Request{
-			TargetURL:             baseTarget,
-			AuthURL:               authURL,
-			VerifyURL:             strings.TrimSpace(opts.VerifyURL),
-			Login:                 login,
-			Password:              pass,
-			InsecureSkipTLSVerify: opts.InsecureSkipTLSVerify,
-		})
-		if !disc.Verified || disc.GenericLogin == nil {
-			msg := strings.TrimSpace(disc.Error)
-			if msg == "" {
-				msg = "authentication failed; check authUrl, credentials, and optional verifyUrl"
-			}
-			return nil, fmt.Errorf("%s", msg)
-		}
-		cfg.Auth = &config.Auth{
-			Strategy: "providerChain",
-			Providers: []config.AuthProvider{{
-				Type: "genericLogin",
-				ID:   "ui-login",
-				SecretsRef: map[string]string{
-					"username": login,
-					"password": pass,
-				},
-				GenericLogin: disc.GenericLogin,
-			}},
-		}
+	if login == "" && pass == "" {
+		return nil
 	}
-	if len(cfg.Targets) > 0 {
-		var inferred []string
-		if cfg.Auth != nil {
-			for _, p := range cfg.Auth.Providers {
-				if p.GenericLogin != nil {
-					inferred = append(inferred, inferStartPointsFromLoginURL(p.GenericLogin.LoginURL)...)
-				}
-			}
-		}
-		if v := strings.TrimSpace(opts.VerifyURL); v != "" {
-			inferred = append(inferred, v)
-		}
-		if len(inferred) > 0 {
-			cfg.Targets[0].StartPoints = mergeStartPoints(cfg.Targets[0].StartPoints, inferred)
-		}
+	if login == "" || pass == "" {
+		return fmt.Errorf("login and password are both required for authenticated scan")
 	}
+	disc := discovery.Discover(discovery.Request{
+		TargetURL:             strings.TrimSpace(opts.Target),
+		AuthURL:               strings.TrimSpace(opts.AuthURL),
+		VerifyURL:             strings.TrimSpace(opts.VerifyURL),
+		Login:                 login,
+		Password:              pass,
+		InsecureSkipTLSVerify: opts.InsecureSkipTLSVerify,
+	})
+	if !disc.Verified || disc.GenericLogin == nil {
+		msg := strings.TrimSpace(disc.Error)
+		if msg == "" {
+			msg = "authentication failed; check authUrl, credentials, and optional verifyUrl"
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	cfg.Auth = &config.Auth{
+		Strategy: "providerChain",
+		Providers: []config.AuthProvider{{
+			Type: "genericLogin",
+			ID:   "ui-login",
+			SecretsRef: map[string]string{
+				"username": login,
+				"password": pass,
+			},
+			GenericLogin: disc.GenericLogin,
+		}},
+	}
+	return nil
+}
 
-	katanaStep := config.ScanStep{
-		StepType:        "katana",
-		Enabled:         true,
-		KatanaDepth:     katDepth,
-		KatanaHeadless:  true,
-		KatanaExtraArgs: []string{"-jc"},
+// applyInferredStartPoints adds start points inferred from the login/verify URLs.
+func applyInferredStartPoints(cfg *config.ScanAsCode, opts CreateOptions) {
+	if len(cfg.Targets) == 0 {
+		return
 	}
+	var inferred []string
+	if cfg.Auth != nil {
+		for _, p := range cfg.Auth.Providers {
+			if p.GenericLogin != nil {
+				inferred = append(inferred, inferStartPointsFromLoginURL(p.GenericLogin.LoginURL)...)
+			}
+		}
+	}
+	if v := strings.TrimSpace(opts.VerifyURL); v != "" {
+		inferred = append(inferred, v)
+	}
+	if len(inferred) > 0 {
+		cfg.Targets[0].StartPoints = mergeStartPoints(cfg.Targets[0].StartPoints, inferred)
+	}
+}
 
-	cfg.Scan.Plan = []config.ScanStep{
-		katanaStep,
+// buildScanPlan assembles the default katana → ZAP → wapiti → nuclei plan.
+func buildScanPlan(katDepth, zapSpiderMin, passiveWait int) []config.ScanStep {
+	return []config.ScanStep{
+		{
+			StepType:        "katana",
+			Enabled:         true,
+			KatanaDepth:     katDepth,
+			KatanaHeadless:  true,
+			KatanaExtraArgs: []string{"-jc"},
+		},
 		{
 			StepType:               "zapBaseline",
 			Enabled:                true,
@@ -189,9 +220,6 @@ func BuildScanYAML(opts CreateOptions) ([]byte, error) {
 			},
 		},
 	}
-	cfg.NucleiFollowUp = nil
-
-	return yaml.Marshal(cfg)
 }
 
 func scopeRegexFromBase(raw string) string {

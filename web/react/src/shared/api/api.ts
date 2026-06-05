@@ -1,10 +1,7 @@
 import { Scan, Finding, ScanConfig, ScanStatusResponse } from '../../entities/Scan/model/types'
+import { getToken, onAuthExpired } from '../auth/token'
 
 const BASE_URL = '/api/v1'
-
-function getToken(): string | null {
-  return localStorage.getItem('token')
-}
 
 function headers(): HeadersInit {
   const token = getToken()
@@ -16,6 +13,9 @@ function headers(): HeadersInit {
 async function handleJsonResponse<T>(res: Response): Promise<T> {
   const text = await res.text()
   if (!res.ok) {
+    if (res.status === 401) {
+      onAuthExpired()
+    }
     const trimmed = text.trim()
     let msg = trimmed || res.statusText || 'Request failed'
     if (trimmed) {
@@ -29,13 +29,16 @@ async function handleJsonResponse<T>(res: Response): Promise<T> {
     }
     throw new Error(msg)
   }
+  // Empty/null/unparsable body -> null. Endpoints that can hit this path use a
+  // `T | null` generic and coalesce (e.g. getScans, getScanStatus).
+  const emptyResult: unknown = null
   if (!text || text === 'null') {
-    return null as unknown as T
+    return emptyResult as T
   }
   try {
     return JSON.parse(text) as T
   } catch {
-    return null as unknown as T
+    return emptyResult as T
   }
 }
 
@@ -70,13 +73,9 @@ export const api = {
   },
 
   async getScans(): Promise<Scan[]> {
-    try {
-      const res = await fetch(`${BASE_URL}/scans`, { headers: headers() })
-      const data = await handleJsonResponse<Scan[] | null>(res)
-      return data || []
-    } catch {
-      return []
-    }
+    const res = await fetch(`${BASE_URL}/scans`, { headers: headers() })
+    const data = await handleJsonResponse<Scan[] | null>(res)
+    return data || []
   },
 
   async createScan(config: ScanConfig): Promise<Scan> {
@@ -101,19 +100,10 @@ export const api = {
     if (!res.ok) throw new Error('Delete failed')
   },
 
-  async getScanStatus(id: string): Promise<ScanStatusResponse | string> {
-    try {
-      const res = await fetch(`${BASE_URL}/scans/${id}/status`, { headers: headers() })
-      const text = await res.text()
-      if (!text || text === 'null') return { status: 'UNKNOWN' }
-      try {
-        return JSON.parse(text)
-      } catch {
-        return text
-      }
-    } catch {
-      return { status: 'UNKNOWN' }
-    }
+  async getScanStatus(id: string): Promise<ScanStatusResponse> {
+    const res = await fetch(`${BASE_URL}/scans/${id}/status`, { headers: headers() })
+    const data = await handleJsonResponse<ScanStatusResponse | null>(res)
+    return data || { status: 'UNKNOWN' }
   },
 
   async getScanEndpoints(jobId: string): Promise<string[]> {
@@ -126,7 +116,7 @@ export const api = {
     return handleJsonResponse(res)
   },
 
-  async getReport(jobId: string, format: 'md' | 'html' | 'docx' | 'endpoints' | 'discovered-urls' = 'md'): Promise<{ blob: Blob; filename: string; contentType: string }> {
+  async getReport(jobId: string, format: 'html' | 'docx' | 'pdf' | 'endpoints' | 'discovered-urls' = 'docx'): Promise<{ blob: Blob; filename: string; contentType: string }> {
     const res = await fetch(`${BASE_URL}/scans/${jobId}/reports?format=${format}`, { headers: headers() })
     if (!res.ok) {
       await handleJsonResponse<unknown>(res)

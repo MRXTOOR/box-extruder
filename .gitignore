@@ -8,7 +8,7 @@ node_modules
 *.out
 coverage.*
 *.coverprofile
-
+*.exe
 # Logs
 *.log
 logs/
@@ -25,6 +25,13 @@ logs/
 .env.*
 !.env.example
 secrets/
+
+# Jenkins local test outputs (may contain CI tokens)
+jenkins/out-pipeline-test/*
+!jenkins/out-pipeline-test/.gitkeep
+jenkins/out-test/
+jenkins/out/
+jenkins/.tmp/
 
 # DAST runtime artifacts
 work/jobs/

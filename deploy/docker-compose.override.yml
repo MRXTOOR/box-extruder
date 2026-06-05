@@ -1,0 +1,6 @@
+# Local dev: use host-built Go binaries when Docker build cannot reach module proxies.
+services:
+  dast-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile.server.packaged

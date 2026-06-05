@@ -6,8 +6,10 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /dast-server ./cmd/server
 
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates curl
-COPY --from=builder /dast-server /usr/local/bin/
+# busybox: wget for healthcheck without apk install failures
+FROM busybox:1.36
+COPY --from=builder /dast-server /dast-server
 EXPOSE 8080
-CMD ["dast-server"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/health
+CMD ["/dast-server"]

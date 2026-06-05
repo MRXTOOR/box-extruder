@@ -230,21 +230,51 @@ func formatGenericJSONPayload(ev model.Evidence) string {
 	return "```json\n" + string(raw) + "\n```\n"
 }
 
-func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time, findings []model.Finding, evidence map[string]model.Evidence, includeEvidence bool, evidenceThreshold string, reportUpdatedAt *time.Time, scannedEndpoints []string) []byte {
+// Data holds the inputs shared by the report renderers (Markdown/HTML). Passing
+// a struct keeps the renderer signatures small and call sites self-documenting.
+type Data struct {
+	JobName           string
+	BaseURL           string
+	Preset            string
+	Started           time.Time
+	Finished          time.Time
+	Findings          []model.Finding
+	Evidence          map[string]model.Evidence
+	IncludeEvidence   bool
+	EvidenceThreshold string
+	ReportUpdatedAt   *time.Time
+	ScannedEndpoints  []string
+}
+
+func RenderMarkdown(d Data) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "# DAST Report\n\n")
-	fmt.Fprintf(&b, "- **Job**: %s\n", jobName)
-	fmt.Fprintf(&b, "- **Target**: %s\n", baseURL)
-	fmt.Fprintf(&b, "- **Preset**: %s\n", preset)
-	fmt.Fprintf(&b, "- **Started**: %s\n", started.UTC().Format(time.RFC3339))
-	fmt.Fprintf(&b, "- **Finished**: %s\n", finished.UTC().Format(time.RFC3339))
-	if reportUpdatedAt != nil {
-		fmt.Fprintf(&b, "- **Report last updated**: %s\n", reportUpdatedAt.UTC().Format(time.RFC3339))
+	writeMarkdownHeader(&b, d)
+	writeMarkdownSummary(&b, d)
+	writeMarkdownFindingsTable(&b, d.Findings)
+	if d.IncludeEvidence {
+		writeMarkdownEvidence(&b, d.Findings, d.Evidence)
 	}
-	fmt.Fprintf(&b, "\n## Executive summary\n\n")
+	writeMarkdownAuditTrail(&b, d.Findings, d.Evidence)
+	return b.Bytes()
+}
+
+func writeMarkdownHeader(b *bytes.Buffer, d Data) {
+	fmt.Fprintf(b, "# DAST Report\n\n")
+	fmt.Fprintf(b, "- **Job**: %s\n", d.JobName)
+	fmt.Fprintf(b, "- **Target**: %s\n", d.BaseURL)
+	fmt.Fprintf(b, "- **Preset**: %s\n", d.Preset)
+	fmt.Fprintf(b, "- **Started**: %s\n", d.Started.UTC().Format(time.RFC3339))
+	fmt.Fprintf(b, "- **Finished**: %s\n", d.Finished.UTC().Format(time.RFC3339))
+	if d.ReportUpdatedAt != nil {
+		fmt.Fprintf(b, "- **Report last updated**: %s\n", d.ReportUpdatedAt.UTC().Format(time.RFC3339))
+	}
+}
+
+func writeMarkdownSummary(b *bytes.Buffer, d Data) {
+	fmt.Fprintf(b, "\n## Executive summary\n\n")
 	var confirmed, unconf, suppressed int
 	bySev := map[model.Severity]int{}
-	for _, f := range findings {
+	for _, f := range d.Findings {
 		bySev[f.Severity]++
 		switch f.LifecycleStatus {
 		case model.LifecycleConfirmed:
@@ -255,39 +285,32 @@ func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time
 			suppressed++
 		}
 	}
-	fmt.Fprintf(&b, "- Confirmed: %d\n- Unconfirmed / detected: %d\n- Suppressed: %d\n\n", confirmed, unconf, suppressed)
-	if len(scannedEndpoints) > 0 {
-		fmt.Fprintf(&b, "\n## Scanned Endpoints\n\n")
-		fmt.Fprintf(&b, "Всего просканировано эндпоинтов: **%d**\n\n", len(scannedEndpoints))
-		fmt.Fprintf(&b, "| # | Endpoint |\n")
-		fmt.Fprintf(&b, "|---|----------|\n")
-		for i, ep := range scannedEndpoints {
-			fmt.Fprintf(&b, "| %d | `%s` |\n", i+1, escapeMarkdownCell(ep))
-		}
-		fmt.Fprintf(&b, "\n")
-	}
-	fmt.Fprintf(&b, "### By severity\n\n")
+	fmt.Fprintf(b, "- Confirmed: %d\n- Unconfirmed / detected: %d\n- Suppressed: %d\n\n", confirmed, unconf, suppressed)
+	fmt.Fprintf(b, "### By severity\n\n")
 	for _, s := range []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo} {
-		fmt.Fprintf(&b, "- **%s**: %d\n", s, bySev[s])
+		fmt.Fprintf(b, "- **%s**: %d\n", s, bySev[s])
 	}
-	th := strings.TrimSpace(evidenceThreshold)
+	th := strings.TrimSpace(d.EvidenceThreshold)
 	if th == "" {
 		th = "low"
 	}
-	if len(findings) > 0 {
-		fmt.Fprintf(&b, "\n## Evidence summary\n\n")
-		fmt.Fprintf(&b, "| Finding ID | Rule | Severity | Status | Evidence refs | Quality |\n")
-		fmt.Fprintf(&b, "|------------|------|----------|--------|---------------|--------|\n")
-		for _, f := range findings {
+	if len(d.Findings) > 0 {
+		fmt.Fprintf(b, "\n## Evidence summary\n\n")
+		fmt.Fprintf(b, "| Finding ID | Rule | Severity | Status | Evidence refs | Quality |\n")
+		fmt.Fprintf(b, "|------------|------|----------|--------|---------------|--------|\n")
+		for _, f := range d.Findings {
 			rule := escapeMarkdownCell(f.RuleID)
-			q := noise.FindingEvidenceQualityLabel(f, evidence, th)
-			fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %d | %s |\n", f.FindingID, rule, f.Severity, f.LifecycleStatus, len(f.EvidenceRefs), q)
+			q := noise.FindingEvidenceQualityLabel(f, d.Evidence, th)
+			fmt.Fprintf(b, "| `%s` | %s | %s | %s | %d | %s |\n", f.FindingID, rule, f.Severity, f.LifecycleStatus, len(f.EvidenceRefs), q)
 		}
-		fmt.Fprintf(&b, "\n")
+		fmt.Fprintf(b, "\n")
 	}
-	fmt.Fprintf(&b, "## Findings\n\n")
-	fmt.Fprintf(&b, "| Severity | Status | Rule | Location | Title | Reviewer | Reviewed at | Review note |\n")
-	fmt.Fprintf(&b, "|----------|--------|------|----------|-------|----------|-------------|-------------|\n")
+}
+
+func writeMarkdownFindingsTable(b *bytes.Buffer, findings []model.Finding) {
+	fmt.Fprintf(b, "## Findings\n\n")
+	fmt.Fprintf(b, "| Severity | Status | Rule | Location | Title | Reviewer | Reviewed at | Review note |\n")
+	fmt.Fprintf(b, "|----------|--------|------|----------|-------|----------|-------------|-------------|\n")
 	for _, f := range findings {
 		title := escapeMarkdownCell(f.Title)
 		reviewer := reviewMarkdownCell(f.ReviewedBy)
@@ -296,46 +319,47 @@ func RenderMarkdown(jobName, baseURL, preset string, started, finished time.Time
 		if f.ReviewedAt != nil {
 			reviewedAt = f.ReviewedAt.UTC().Format(time.RFC3339)
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n", f.Severity, f.LifecycleStatus, f.RuleID, f.LocationKey, title, reviewer, reviewedAt, note)
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n", f.Severity, f.LifecycleStatus, f.RuleID, f.LocationKey, title, reviewer, reviewedAt, note)
 	}
-	if includeEvidence {
-		fmt.Fprintf(&b, "\n## Evidence\n\n")
-		for _, f := range sortedFindingsBySeverity(findings) {
-			var printedHeader bool
-			for _, eid := range f.EvidenceRefs {
-				ev, ok := evidence[eid]
-				if !ok {
-					continue
-				}
-				if ev.Type == model.EvidenceManualReview {
-					continue
-				}
-				if !printedHeader {
-					title := escapeMarkdownCell(f.Title)
-					fmt.Fprintf(&b, "### Finding `%s` — %s — %s — %s\n\n", f.FindingID, f.Severity, f.LifecycleStatus, title)
-					printedHeader = true
-				}
-				fmt.Fprintf(&b, "#### Evidence `%s` (%s)\n\n", eid, ev.Type)
-				b.WriteString(formatEvidenceMarkdown(ev))
-				b.WriteString("\n")
+}
+
+func writeMarkdownEvidence(b *bytes.Buffer, findings []model.Finding, evidence map[string]model.Evidence) {
+	fmt.Fprintf(b, "\n## Evidence\n\n")
+	for _, f := range sortedFindingsBySeverity(findings) {
+		var printedHeader bool
+		for _, eid := range f.EvidenceRefs {
+			ev, ok := evidence[eid]
+			if !ok || ev.Type == model.EvidenceManualReview {
+				continue
 			}
+			if !printedHeader {
+				title := escapeMarkdownCell(f.Title)
+				fmt.Fprintf(b, "### Finding `%s` — %s — %s — %s\n\n", f.FindingID, f.Severity, f.LifecycleStatus, title)
+				printedHeader = true
+			}
+			fmt.Fprintf(b, "#### Evidence `%s` (%s)\n\n", eid, ev.Type)
+			b.WriteString(formatEvidenceMarkdown(ev))
+			b.WriteString("\n")
 		}
 	}
-	if hasManualReviewEvidence(findings, evidence) {
-		fmt.Fprintf(&b, "\n## Audit trail (manual review)\n\n")
-		for _, f := range findings {
-			for _, eid := range f.EvidenceRefs {
-				ev, ok := evidence[eid]
-				if !ok || ev.Type != model.EvidenceManualReview {
-					continue
-				}
-				fmt.Fprintf(&b, "### Finding %s — evidence `%s`\n\n", f.FindingID, eid)
-				b.WriteString(formatManualReviewEvidence(ev))
-				b.WriteString("\n")
+}
+
+func writeMarkdownAuditTrail(b *bytes.Buffer, findings []model.Finding, evidence map[string]model.Evidence) {
+	if !hasManualReviewEvidence(findings, evidence) {
+		return
+	}
+	fmt.Fprintf(b, "\n## Audit trail (manual review)\n\n")
+	for _, f := range findings {
+		for _, eid := range f.EvidenceRefs {
+			ev, ok := evidence[eid]
+			if !ok || ev.Type != model.EvidenceManualReview {
+				continue
 			}
+			fmt.Fprintf(b, "### Finding %s — evidence `%s`\n\n", f.FindingID, eid)
+			b.WriteString(formatManualReviewEvidence(ev))
+			b.WriteString("\n")
 		}
 	}
-	return b.Bytes()
 }
 
 func hasManualReviewEvidence(findings []model.Finding, evidence map[string]model.Evidence) bool {
@@ -446,16 +470,10 @@ func WriteReportHTMLFallback(mdPath, htmlPath string) error {
 	return os.WriteFile(htmlPath, []byte(b.String()), 0o644)
 }
 
+// PandocToDocxOptional is deprecated; use EnsureDocxReport with report Data instead.
 func PandocToDocxOptional(mdPath, docxPath, referenceDocx string) error {
-	if _, err := exec.LookPath("pandoc"); err != nil {
-		htmlPath := strings.TrimSuffix(docxPath, ".docx") + ".html"
-		if err := WriteReportHTMLFallback(mdPath, htmlPath); err != nil {
-			stub := []byte("Install pandoc for report.docx; HTML fallback failed: " + err.Error() + "\n")
-			return os.WriteFile(docxPath+".txt", stub, 0o644)
-		}
-		return nil
-	}
-	return PandocToDocx(mdPath, docxPath, referenceDocx)
+	htmlPath := strings.TrimSuffix(docxPath, ".docx") + ".html"
+	return tryPandocDocx(mdPath, htmlPath, docxPath, referenceDocx)
 }
 
 // ResolveReferenceDoc finds reference docx path from templateRef like template://file.docx

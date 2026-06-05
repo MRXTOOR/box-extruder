@@ -1,0 +1,111 @@
+package report
+
+import (
+	"bytes"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/box-extruder/dast/internal/model"
+)
+
+// WriteEnterpriseDocx builds report.docx using the corporate template package
+// (styles, numbering, headers) and table markup from enterprise-reference.docx.
+func WriteEnterpriseDocx(d Data, path string) error {
+	loadTemplateDocumentShell()
+	if templateDocOpen == "" {
+		return fmt.Errorf("enterprise docx template shell not loaded")
+	}
+
+	product := productNameFromData(d)
+	reportDate := d.Finished.UTC().Format("02.01.2006")
+	if d.Finished.IsZero() {
+		reportDate = time.Now().UTC().Format("02.01.2006")
+	}
+	period := d.Started.UTC().Format("02.01.2006 15:04") + " — " + d.Finished.UTC().Format("02.01.2006 15:04")
+	methods := "DAST (AppSec-DAST): Katana, OWASP ZAP Baseline, Wapiti, Nuclei"
+
+	var body bytes.Buffer
+	corpTitle(&body)
+	corpSection(&body, 1, "Общие сведения")
+	corpInfoTable(&body, [][2]string{
+		{"Наименование ПО", product},
+		{"Версия ПО", d.Preset},
+		{"Идентификатор сканирования", d.JobName},
+		{"Дата формирования отчета", reportDate},
+		{"Целевой URL", d.BaseURL},
+		{"Период тестирования", period},
+		{"Методы тестирования", methods},
+	})
+
+	corpSection(&body, 1, "Цель тестирования")
+	corpBody(&body, "Целью тестирования является выявление уязвимостей и ошибок конфигурации "+
+		"веб-приложения в ходе эксплуатации (runtime) в соответствии с требованиями безопасности "+
+		"и подтверждение соответствия заявленному уровню защищённости.")
+
+	corpSection(&body, 1, "Состав и границы тестирования")
+	corpBody(&body, "Тестируемый компонент: веб-приложение "+d.BaseURL+".")
+	corpBody(&body, "Исключённые из тестирования части: исходный код приложения (SAST), зависимости сборки (SCA), "+
+		"инфраструктура вне области сканирования и сторонние сервисы вне целевого URL.")
+
+	corpSection(&body, 1, "Окружение тестирования")
+	corpBody(&body, "Динамический анализ безопасности веб-приложения (Black-box), платформа AppSec-DAST; "+
+		"инструменты Katana, OWASP ZAP, Wapiti, Nuclei.")
+
+	corpSection(&body, 1, "Результаты тестирования")
+	corpSection(&body, 2, "Выявленные уязвимости и ошибки конфигурации")
+
+	if len(d.Findings) == 0 {
+		corpBody(&body, "По результатам DAST-сканирования уязвимостей не выявлено.")
+	} else {
+		headers := []string{"№", "Идентификатор", "Описание", "Тип анализа", "Уровень критичности", "Статус"}
+		rows := make([][]string, 0, len(d.Findings))
+		for i, f := range d.Findings {
+			rows = append(rows, []string{
+				fmt.Sprintf("%d", i+1),
+				findingIdentifier(f),
+				truncateForCell(findingDescription(f), 1200),
+				analysisType(f),
+				severityRU(f.Severity),
+				lifecycleRU(f.LifecycleStatus),
+			})
+		}
+		corpFindingsTable(&body, headers, rows, corpFindingColWidths)
+
+		bySev := map[model.Severity]int{}
+		for _, f := range d.Findings {
+			bySev[f.Severity]++
+		}
+		corpSection(&body, 2, "Распределение по уровню критичности")
+		sevPairs := make([][2]string, 0)
+		for _, sev := range []model.Severity{
+			model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo,
+		} {
+			if n := bySev[sev]; n > 0 {
+				sevPairs = append(sevPairs, [2]string{severityRU(sev), fmt.Sprintf("%d", n)})
+			}
+		}
+		corpInfoTable(&body, sevPairs)
+	}
+
+	var doc bytes.Buffer
+	doc.WriteString(templateDocOpen)
+	doc.Write(body.Bytes())
+	doc.WriteString(templateDocClose)
+
+	out := doc.Bytes()
+	if !bytes.HasPrefix(out, []byte("<?xml")) {
+		out = append([]byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`), out...)
+	}
+	return cloneDocxWithDocument(out, path)
+}
+
+func truncateForCell(s string, max int) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
+}

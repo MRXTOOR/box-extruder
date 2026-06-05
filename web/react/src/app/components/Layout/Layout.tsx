@@ -1,12 +1,13 @@
 import { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { clearToken } from '../../../shared/auth/token'
 import './Layout.css'
 
 export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
+    clearToken()
     navigate('/login')
   }
 

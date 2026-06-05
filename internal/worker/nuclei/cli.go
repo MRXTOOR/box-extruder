@@ -193,7 +193,7 @@ func nucleiRowToModels(row nucleiJSONLine, ctxID string, dedupe config.DedupeCon
 	if matched == "" {
 		return nil, model.Evidence{}
 	}
-	method, _ := firstLineMethodURL(row.Request)
+	method := firstLineMethod(row.Request)
 	if method == "" {
 		method = "GET"
 	}
@@ -243,10 +243,12 @@ func nucleiRowToModels(row nucleiJSONLine, ctxID string, dedupe config.DedupeCon
 	return &f, ev
 }
 
-func firstLineMethodURL(raw string) (method, url string) {
+// firstLineMethod returns the HTTP method from the request line of a raw HTTP
+// request dump (e.g. "GET /path HTTP/1.1"), or "" if it cannot be parsed.
+func firstLineMethod(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", ""
+		return ""
 	}
 	line := raw
 	if i := strings.Index(raw, "\n"); i >= 0 {
@@ -254,11 +256,9 @@ func firstLineMethodURL(raw string) (method, url string) {
 	}
 	parts := strings.Fields(line)
 	if len(parts) < 2 {
-		return "", ""
+		return ""
 	}
-	method = strings.ToUpper(parts[0])
-	url = parts[1]
-	return method, url
+	return strings.ToUpper(parts[0])
 }
 
 func statusFromHTTPResponse(raw string) int {

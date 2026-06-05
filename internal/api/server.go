@@ -181,24 +181,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleReports(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
-	format := r.URL.Query().Get("format")
-	if strings.EqualFold(format, "docx") {
-		root := filepath.Join(storage.JobRoot(s.WorkDir, jobID), "reports")
-		p := filepath.Join(root, "report.docx")
-		if _, err := os.Stat(p); err == nil {
-			http.ServeFile(w, r, p)
-			return
-		}
-		hp := filepath.Join(root, "report.html")
-		if _, err := os.Stat(hp); err == nil {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			http.ServeFile(w, r, hp)
-			return
-		}
-		http.Error(w, "docx not available (install pandoc); html fallback missing", http.StatusNotFound)
-		return
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	root := filepath.Join(storage.JobRoot(s.WorkDir, jobID), "reports")
+	switch format {
+	case "html":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		http.ServeFile(w, r, filepath.Join(root, "report.html"))
+	case "pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+		http.ServeFile(w, r, filepath.Join(root, "report.pdf"))
+	case "docx", "word":
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+		http.ServeFile(w, r, filepath.Join(root, "report.docx"))
+	default:
+		http.Error(w, "unsupported format; use html, docx or pdf", http.StatusBadRequest)
 	}
-	// default: markdown
-	p := filepath.Join(storage.JobRoot(s.WorkDir, jobID), "reports", "report.md")
-	http.ServeFile(w, r, p)
 }

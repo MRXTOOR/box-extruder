@@ -3,6 +3,7 @@ import { Layout } from './components/Layout/Layout'
 import { LoginPage } from '../pages/LoginPage/LoginPage'
 import { ScansPage } from '../pages/ScansPage/ScansPage'
 import { ScanDetailPage } from '../pages/ScanDetailPage/ScanDetailPage'
+import { isAuthenticated } from '../shared/auth/token'
 
 function LayoutWrapper() {
   return (
@@ -13,8 +14,7 @@ function LayoutWrapper() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('token')
-  if (!token) {
+  if (!isAuthenticated()) {
     return <Navigate to="/login" replace />
   }
   return <>{children}</>

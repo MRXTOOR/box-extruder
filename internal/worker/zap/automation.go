@@ -244,149 +244,12 @@ func buildReplacerJobFromAuthHeaders(authHeaders map[string]string) map[string]a
 }
 
 func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep, reportDir string, authHeaders map[string]string, sqlProbes []map[string]any) ([]byte, error) {
-	maxSpider := step.ZAPMaxSpiderMinutes
-	if maxSpider <= 0 {
-		maxSpider = 5
-	}
-	passiveSec := step.ZAPPassiveWaitSeconds
-	if passiveSec <= 0 {
-		passiveSec = 60
-	}
-	passiveMin := (passiveSec + 59) / 60
-	if passiveMin < 1 {
-		passiveMin = 1
-	}
-
-	// Only use page-like URLs as spider seeds. Static assets (JS bundles, JSON, images) as
-	// seeds result in spider instances that exit in <1 second and waste concurrency budget.
-	pageSeeds := filterPageSeeds(seedURLs)
-
-	// primary is the canonical entry-point URL used for scope fallback and activeScan target.
-	// Use the first page-like seed so a JS file is never the active-scan target.
-	primary := pageSeeds[0]
-
-	include := make([]string, 0, len(allow)+1)
-	for _, a := range allow {
-		a = strings.TrimSpace(a)
-		if a != "" {
-			include = append(include, a)
-		}
-	}
-	if len(include) == 0 {
-		include = append(include, strings.TrimSuffix(primary, "/")+"/.*")
-	}
-
-	useTrad := step.ZAPSpiderTraditional || !step.ZAPSpiderAjax
-	useAjax := step.ZAPSpiderAjax
-	browser := strings.TrimSpace(step.ZAPAjaxBrowserID)
-	if browser == "" {
-		browser = "firefox-headless"
-	}
-
-	jobs := make([]map[string]any, 0, 16)
-	if rj := buildReplacerJobFromAuthHeaders(authHeaders); rj != nil {
-		jobs = append(jobs, rj)
-	}
-
-	if useTrad {
-		for _, seed := range pageSeeds {
-			jobs = append(jobs, map[string]any{
-				"type": "spider",
-				"parameters": map[string]any{
-					"context":     dastContextName,
-					"url":         seed,
-					"maxDuration": maxSpider,
-				},
-			})
-		}
-	}
-	jobs = append(jobs, map[string]any{
-		"type": "passiveScan-wait",
-		"parameters": map[string]any{
-			"maxDuration": passiveMin,
-		},
-	})
-	if useAjax {
-		for _, seed := range pageSeeds {
-			ajaxParams := map[string]any{
-				"context":         dastContextName,
-				"url":             seed,
-				"maxDuration":     maxSpider,
-				"browserId":       browser,
-				"runOnlyIfModern": false,
-				"inScopeOnly":     true,
-			}
-			if step.ZAPAjaxEventWait > 0 {
-				ajaxParams["eventWait"] = step.ZAPAjaxEventWait
-			}
-			if step.ZAPAjaxReloadWait > 0 {
-				ajaxParams["reloadWait"] = step.ZAPAjaxReloadWait
-			}
-			if step.ZAPAjaxMaxCrawlStates > 0 {
-				ajaxParams["maxCrawlStates"] = step.ZAPAjaxMaxCrawlStates
-			}
-			jobs = append(jobs, map[string]any{
-				"type":       "spiderAjax",
-				"parameters": ajaxParams,
-			})
-		}
-		jobs = append(jobs, map[string]any{
-			"type": "passiveScan-wait",
-			"parameters": map[string]any{
-				"maxDuration": passiveMin,
-			},
-		})
-	}
-	if len(sqlProbes) > 0 {
-		jobs = append(jobs, map[string]any{
-			"type":       "requestor",
-			"parameters": map[string]any{},
-			"requests":   sqlProbes,
-		})
-	}
-	if zapActiveScanEnabled() {
-		jobs = append(jobs, map[string]any{
-			"type": "activeScan",
-			"parameters": map[string]any{
-				"context":               dastContextName,
-				"url":                   primary,
-				"maxScanDurationInMins": zapActiveScanMaxMinutes(),
-			},
-		})
-		jobs = append(jobs, map[string]any{
-			"type": "passiveScan-wait",
-			"parameters": map[string]any{
-				"maxDuration": passiveMin,
-			},
-		})
-	}
-	// Export after requestor/active scan so the saved site tree matches what ZAP discovered overall,
-	// not just the early crawl tree. Payload probes are filtered later when building the discovery feed.
-	jobs = append(jobs, map[string]any{
-		"type": "export",
-		"parameters": map[string]any{
-			"context":   dastContextName,
-			"type":      "url",
-			"source":    "all",
-			"reportDir": reportDir,
-			"fileName":  urlsExportFileName,
-		},
-	})
-	jobs = append(jobs, map[string]any{
-		"type": "report",
-		"parameters": map[string]any{
-			"template":      "traditional-json",
-			"reportDir":     reportDir,
-			"reportFile":    reportFileName,
-			"reportTitle":   "DAST orchestrator",
-			"displayReport": false,
-		},
-	})
+	plan := newZapJobPlan(seedURLs, step, reportDir, sqlProbes)
 
 	contextBlock := map[string]any{
 		"name":         dastContextName,
 		"urls":         seedURLs,
-		"includePaths": include,
+		"includePaths": buildIncludePaths(allow, plan.primary),
 	}
 	if step.ZAPContextExcludeStatic {
 		contextBlock["excludePaths"] = buildSPAContextExcludePaths()
@@ -403,9 +266,185 @@ func buildAutomationYAML(seedURLs []string, allow []string, step config.ScanStep
 				"progressToStdout": true,
 			},
 		},
-		"jobs": jobs,
+		"jobs": plan.buildJobs(authHeaders),
 	}
 	return yaml.Marshal(doc)
+}
+
+// zapJobPlan holds the resolved parameters for assembling the ZAP automation jobs.
+type zapJobPlan struct {
+	pageSeeds  []string
+	primary    string
+	step       config.ScanStep
+	maxSpider  int
+	passiveMin int
+	browser    string
+	useTrad    bool
+	useAjax    bool
+	reportDir  string
+	sqlProbes  []map[string]any
+}
+
+func newZapJobPlan(seedURLs []string, step config.ScanStep, reportDir string, sqlProbes []map[string]any) zapJobPlan {
+	maxSpider := step.ZAPMaxSpiderMinutes
+	if maxSpider <= 0 {
+		maxSpider = 5
+	}
+	passiveSec := step.ZAPPassiveWaitSeconds
+	if passiveSec <= 0 {
+		passiveSec = 60
+	}
+	passiveMin := (passiveSec + 59) / 60
+	if passiveMin < 1 {
+		passiveMin = 1
+	}
+	// Only use page-like URLs as spider seeds. Static assets (JS bundles, JSON, images) as
+	// seeds result in spider instances that exit in <1 second and waste concurrency budget.
+	pageSeeds := filterPageSeeds(seedURLs)
+	browser := strings.TrimSpace(step.ZAPAjaxBrowserID)
+	if browser == "" {
+		browser = "firefox-headless"
+	}
+	return zapJobPlan{
+		pageSeeds: pageSeeds,
+		// primary is the canonical entry-point URL used for scope fallback and the
+		// activeScan target — the first page-like seed so a JS file is never targeted.
+		primary:    pageSeeds[0],
+		step:       step,
+		maxSpider:  maxSpider,
+		passiveMin: passiveMin,
+		browser:    browser,
+		useTrad:    step.ZAPSpiderTraditional || !step.ZAPSpiderAjax,
+		useAjax:    step.ZAPSpiderAjax,
+		reportDir:  reportDir,
+		sqlProbes:  sqlProbes,
+	}
+}
+
+// buildJobs assembles the ordered ZAP automation job list.
+func (p zapJobPlan) buildJobs(authHeaders map[string]string) []map[string]any {
+	jobs := make([]map[string]any, 0, 16)
+	if rj := buildReplacerJobFromAuthHeaders(authHeaders); rj != nil {
+		jobs = append(jobs, rj)
+	}
+	if p.useTrad {
+		for _, seed := range p.pageSeeds {
+			jobs = append(jobs, map[string]any{
+				"type": "spider",
+				"parameters": map[string]any{
+					"context":     dastContextName,
+					"url":         seed,
+					"maxDuration": p.maxSpider,
+				},
+			})
+		}
+	}
+	jobs = append(jobs, p.passiveWaitJob())
+	if p.useAjax {
+		jobs = append(jobs, p.ajaxJobs()...)
+		jobs = append(jobs, p.passiveWaitJob())
+	}
+	if len(p.sqlProbes) > 0 {
+		jobs = append(jobs, map[string]any{
+			"type":       "requestor",
+			"parameters": map[string]any{},
+			"requests":   p.sqlProbes,
+		})
+	}
+	if zapActiveScanEnabled() {
+		jobs = append(jobs, p.activeScanJob(), p.passiveWaitJob())
+	}
+	// Export after requestor/active scan so the saved site tree matches what ZAP discovered
+	// overall, not just the early crawl tree. Payload probes are filtered later.
+	jobs = append(jobs, p.exportJob(), p.reportJob())
+	return jobs
+}
+
+func (p zapJobPlan) passiveWaitJob() map[string]any {
+	return map[string]any{
+		"type":       "passiveScan-wait",
+		"parameters": map[string]any{"maxDuration": p.passiveMin},
+	}
+}
+
+func (p zapJobPlan) ajaxJobs() []map[string]any {
+	out := make([]map[string]any, 0, len(p.pageSeeds))
+	for _, seed := range p.pageSeeds {
+		ajaxParams := map[string]any{
+			"context":         dastContextName,
+			"url":             seed,
+			"maxDuration":     p.maxSpider,
+			"browserId":       p.browser,
+			"runOnlyIfModern": false,
+			"inScopeOnly":     true,
+		}
+		if p.step.ZAPAjaxEventWait > 0 {
+			ajaxParams["eventWait"] = p.step.ZAPAjaxEventWait
+		}
+		if p.step.ZAPAjaxReloadWait > 0 {
+			ajaxParams["reloadWait"] = p.step.ZAPAjaxReloadWait
+		}
+		if p.step.ZAPAjaxMaxCrawlStates > 0 {
+			ajaxParams["maxCrawlStates"] = p.step.ZAPAjaxMaxCrawlStates
+		}
+		out = append(out, map[string]any{
+			"type":       "spiderAjax",
+			"parameters": ajaxParams,
+		})
+	}
+	return out
+}
+
+func (p zapJobPlan) activeScanJob() map[string]any {
+	return map[string]any{
+		"type": "activeScan",
+		"parameters": map[string]any{
+			"context":               dastContextName,
+			"url":                   p.primary,
+			"maxScanDurationInMins": zapActiveScanMaxMinutes(),
+		},
+	}
+}
+
+func (p zapJobPlan) exportJob() map[string]any {
+	return map[string]any{
+		"type": "export",
+		"parameters": map[string]any{
+			"context":   dastContextName,
+			"type":      "url",
+			"source":    "all",
+			"reportDir": p.reportDir,
+			"fileName":  urlsExportFileName,
+		},
+	}
+}
+
+func (p zapJobPlan) reportJob() map[string]any {
+	return map[string]any{
+		"type": "report",
+		"parameters": map[string]any{
+			"template":      "traditional-json",
+			"reportDir":     p.reportDir,
+			"reportFile":    reportFileName,
+			"reportTitle":   "DAST orchestrator",
+			"displayReport": false,
+		},
+	}
+}
+
+// buildIncludePaths returns the trimmed allow-list, falling back to the primary
+// URL subtree when no rules are configured.
+func buildIncludePaths(allow []string, primary string) []string {
+	include := make([]string, 0, len(allow)+1)
+	for _, a := range allow {
+		if a = strings.TrimSpace(a); a != "" {
+			include = append(include, a)
+		}
+	}
+	if len(include) == 0 {
+		include = append(include, strings.TrimSuffix(primary, "/")+"/.*")
+	}
+	return include
 }
 
 func zapActiveScanEnabled() bool {

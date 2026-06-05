@@ -248,7 +248,7 @@ func DefaultScanAsCode() ScanAsCode {
 			},
 		},
 		Outputs: Outputs{
-			Formats: []string{"json", "md", "docx"},
+			Formats: []string{"json", "html", "docx", "pdf"},
 			Paths:   OutputPaths{ArtifactsDir: "artifacts"},
 		},
 	}

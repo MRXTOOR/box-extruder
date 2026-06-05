@@ -122,7 +122,7 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
           id="authUrl"
           type="text"
           className={styles.input}
-          placeholder="https://target.example/api/auth/login"
+          placeholder="https://<host>/api/auth/login"
           value={authUrl}
           onChange={(e) => setAuthUrl(e.target.value)}
           disabled={loading}

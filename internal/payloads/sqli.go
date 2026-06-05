@@ -93,26 +93,40 @@ func AppendSQLiSeedURLs(seeds []string, baseURL, paramName, payloadPath string) 
 }
 
 func WriteNucleiCLITemplate(sqliFileAbs, outYamlPath string) error {
-	return WriteNucleiCLITemplateForFile(sqliFileAbs, outYamlPath, "dast-sqli-payload-probes", "q", SQLiFileName, "SQLi", "sqli,dast")
+	return WriteNucleiCLITemplateForFile(sqliFileAbs, outYamlPath, nucleiCLITemplateSpec{
+		id: "dast-sqli-payload-probes", param: "q", fileName: SQLiFileName, label: "SQLi", tags: "sqli,dast",
+	})
 }
 
 func WriteNucleiXSSCLITemplate(xssFileAbs, outYamlPath string) error {
-	return WriteNucleiCLITemplateForFile(xssFileAbs, outYamlPath, "dast-xss-payload-probes", "x", XSSFileName, "XSS", "xss,dast")
+	return WriteNucleiCLITemplateForFile(xssFileAbs, outYamlPath, nucleiCLITemplateSpec{
+		id: "dast-xss-payload-probes", param: "x", fileName: XSSFileName, label: "XSS", tags: "xss,dast",
+	})
 }
 
-func WriteNucleiCLITemplateForFile(payloadFileAbs, outYamlPath, id, param, fileName, label, tags string) error {
+// nucleiCLITemplateSpec describes the descriptive fields of a generated Nuclei
+// CLI payload template.
+type nucleiCLITemplateSpec struct {
+	id       string
+	param    string
+	fileName string
+	label    string
+	tags     string
+}
+
+func WriteNucleiCLITemplateForFile(payloadFileAbs, outYamlPath string, spec nucleiCLITemplateSpec) error {
 	payloadFileAbs = filepath.Clean(payloadFileAbs)
-	tpl := `# Автогенерация: ` + label + `-пейлоады из ` + fileName + `
-id: ` + id + `
+	tpl := `# Автогенерация: ` + spec.label + `-пейлоады из ` + spec.fileName + `
+id: ` + spec.id + `
 info:
-  name: ` + label + ` payload probes (custom file)
+  name: ` + spec.label + ` payload probes (custom file)
   severity: info
-  description: GET с параметром ` + param + ` и строками из ` + fileName + `
-  tags: ` + tags + `
+  description: GET с параметром ` + spec.param + ` и строками из ` + spec.fileName + `
+  tags: ` + spec.tags + `
 http:
   - method: GET
     path:
-      - "{{BaseURL}}?` + param + `={{urlencode(payload)}}"
+      - "{{BaseURL}}?` + spec.param + `={{urlencode(payload)}}"
     payloads:
       payload:
         - ` + payloadFileAbs + `

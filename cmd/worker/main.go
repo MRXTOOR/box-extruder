@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -108,6 +109,18 @@ func runWorkerLoop(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDi
 			if ctx.Err() != nil {
 				return
 			}
+			if errors.Is(err, redis.Nil) {
+				// Empty queue: BRPOP timed out, this is the normal idle path.
+				continue
+			}
+			// Real Redis or message-decode failure: log it instead of silently
+			// dropping the job, and back off to avoid a hot error loop.
+			log.Printf("Worker %d: dequeue error: %v", workerID, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 			continue
 		}
 
@@ -131,10 +144,6 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Job %s panic: %v", job.JobID, r)
-			if fmt.Sprint(r) == "canceled" {
-				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
-				return
-			}
 			db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
 		}
 	}()
@@ -144,28 +153,22 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 		return
 	}
 
-	var yamlData []byte
-	if strings.TrimSpace(job.ConfigYAML) != "" {
-		yamlData = []byte(job.ConfigYAML)
-	} else {
-		cfg := buildConfig(job)
-		var err error
-		yamlData, err = yaml.Marshal(cfg)
-		if err != nil {
-			log.Printf("Failed to marshal config: %v", err)
-			db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
-			return
-		}
-	}
-
-	parsedCfg, err := config.ParseScanAsCode(yamlData)
+	yamlData, parsedCfg, err := prepareJobConfig(job)
 	if err != nil {
-		log.Printf("Failed to parse config: %v", err)
+		log.Printf("Job %s config: %v", job.JobID, err)
 		db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
 		return
 	}
 
+	// Per-job context: canceled when the user requests cancellation (observed via
+	// the Redis cancel flag) or when the worker shuts down. The runner checks it
+	// between pipeline steps and returns runner.ErrCanceled.
+	jobCtx, cancelJob := context.WithCancel(ctx)
+	defer cancelJob()
+	go watchCancelFlag(jobCtx, rdb, job.JobID, cancelJob)
+
 	runnerOpts := runner.Options{
+		Ctx:           jobCtx,
 		WorkDir:       workDir,
 		ConfigYAML:    yamlData,
 		Config:        parsedCfg,
@@ -184,27 +187,46 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 				ConfigHash: req.ConfigHash,
 			})
 		},
-		OnProgress: func(ts time.Time, level, msg string, fields map[string]string) {
-			if canceled, _ := queue.GetCancelFlag(ctx, rdb, job.JobID); canceled {
-				log.Printf("Job %s canceled during execution", job.JobID)
-				db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
-				panic("canceled")
-			}
-		},
 	}
 
-	_, err = runner.Run(runnerOpts)
-	if err != nil {
-		if canceled, _ := queue.GetCancelFlag(ctx, rdb, job.JobID); canceled {
-			log.Printf("Job %s was canceled", job.JobID)
-			db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
-			return
-		}
-		log.Printf("Job %s failed: %v", job.JobID, err)
-		db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
+	if _, err := runner.Run(runnerOpts); err != nil {
+		handleRunError(ctx, pool, rdb, job, err)
 		return
 	}
+	finalizeJob(ctx, pool, workDir, job)
+}
 
+// prepareJobConfig resolves the effective scan YAML (from the job message or a
+// built config) and parses it.
+func prepareJobConfig(job *queue.JobMessage) ([]byte, *config.ScanAsCode, error) {
+	yamlData := []byte(job.ConfigYAML)
+	if strings.TrimSpace(job.ConfigYAML) == "" {
+		out, err := yaml.Marshal(buildConfig(job))
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal config: %w", err)
+		}
+		yamlData = out
+	}
+	parsedCfg, err := config.ParseScanAsCode(yamlData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse config: %w", err)
+	}
+	return yamlData, parsedCfg, nil
+}
+
+// handleRunError maps a runner error to CANCELLED or FAILED scan status.
+func handleRunError(ctx context.Context, pool *db.Pool, rdb *redis.Client, job *queue.JobMessage, err error) {
+	if errors.Is(err, runner.ErrCanceled) || isJobCanceled(ctx, rdb, job.JobID) {
+		log.Printf("Job %s was canceled", job.JobID)
+		db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
+		return
+	}
+	log.Printf("Job %s failed: %v", job.JobID, err)
+	db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
+}
+
+// finalizeJob records the terminal scan status and persists findings to the DB.
+func finalizeJob(ctx context.Context, pool *db.Pool, workDir string, job *queue.JobMessage) {
 	finalStatus := "SUCCEEDED"
 	if j, err := storage.ReadJob(workDir, job.JobID); err == nil {
 		if s := strings.TrimSpace(string(j.Status)); s != "" {
@@ -214,12 +236,34 @@ func processJob(ctx context.Context, pool *db.Pool, rdb *redis.Client, workDir s
 	if err := db.UpdateScanStatus(ctx, pool, job.JobID, finalStatus); err != nil {
 		log.Printf("Failed to update status to %s: %v", finalStatus, err)
 	}
-
 	if err := persistFindingsToDB(ctx, pool, workDir, job.JobID); err != nil {
 		log.Printf("Job %s: persist findings to DB: %v", job.JobID, err)
 	}
-
 	log.Printf("Job %s completed with status %s", job.JobID, finalStatus)
+}
+
+// watchCancelFlag polls the Redis cancel flag and cancels the job context when
+// the user requests cancellation. It exits when ctx is done (job finished).
+func watchCancelFlag(ctx context.Context, rdb *redis.Client, jobID string, cancel context.CancelFunc) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if canceled, _ := queue.GetCancelFlag(ctx, rdb, jobID); canceled {
+				log.Printf("Job %s: cancel flag observed, stopping", jobID)
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+func isJobCanceled(ctx context.Context, rdb *redis.Client, jobID string) bool {
+	canceled, _ := queue.GetCancelFlag(ctx, rdb, jobID)
+	return canceled
 }
 
 func persistFindingsToDB(ctx context.Context, pool *db.Pool, workDir, jobID string) error {

@@ -161,16 +161,23 @@ func regenerateReport(workDir, jobID string, findings []model.Finding) error {
 		finished = *j.FinishedAt
 	}
 	updated := time.Now().UTC()
-	md := report.RenderMarkdown(cfg.Job.Name, baseURL, preset, started, finished, findings, evidenceByID, cfg.ReportIncludeEvidence(), cfg.Budgets.Verification.EvidenceThreshold, &updated, nil)
-	if err := storage.WriteReportMD(workDir, jobID, md); err != nil {
-		return err
+	reportData := report.Data{
+		JobName:           cfg.Job.Name,
+		BaseURL:           baseURL,
+		Preset:            preset,
+		Started:           started,
+		Finished:          finished,
+		Findings:          findings,
+		Evidence:          evidenceByID,
+		IncludeEvidence:   cfg.ReportIncludeEvidence(),
+		EvidenceThreshold: cfg.Budgets.Verification.EvidenceThreshold,
+		ReportUpdatedAt:   &updated,
 	}
-	mdPath := filepath.Join(storage.JobRoot(workDir, jobID), "reports", "report.md")
-	docxPath := filepath.Join(storage.JobRoot(workDir, jobID), "reports", "report.docx")
-	ref := ""
-	if cfg.Outputs.Docx != nil {
-		ref = report.ResolveReferenceDoc(cfg.Outputs.Docx.TemplateRef, workDir)
+	root := storage.JobRoot(workDir, jobID)
+	reportsDir := filepath.Join(root, "reports")
+	ref := report.ResolveEnterpriseReferenceDoc("", workDir)
+	if cfg.Outputs.Docx != nil && cfg.Outputs.Docx.TemplateRef != "" {
+		ref = report.ResolveEnterpriseReferenceDoc(cfg.Outputs.Docx.TemplateRef, workDir)
 	}
-	_ = report.PandocToDocxOptional(mdPath, docxPath, ref)
-	return nil
+	return report.WriteScanReports(reportData, reportsDir, ref)
 }

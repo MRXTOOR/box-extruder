@@ -1,246 +1,55 @@
-import { useEffect, useState, useRef } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ScanForm, ScanConfig } from '../../widgets/ScanForm/ScanForm'
+import { Check, Circle, Loader2, X } from 'lucide-react'
+import { ScanForm } from '../../widgets/ScanForm/ScanForm'
 import { api } from '../../shared/api/api'
-import { Scan, ScanStatusResponse } from '../../entities/Scan/model/types'
+import { downloadReport } from '../../shared/lib/download'
+import { useScans } from './useScans'
+import { ScanHistorySidebar } from './ScanHistorySidebar'
+import { DownloadReportModal, ReportFormat } from './DownloadReportModal'
 import styles from './ScansPage.module.css'
-
-const statusLabels: Record<string, string> = {
-  SUCCEEDED: '✓ Завершён',
-  FAILED: '✗ Ошибка',
-  PARTIAL_SUCCESS: '⚠ Частично',
-  RUNNING: '▶ Выполняется',
-  QUEUED: '⏳ В очереди',
-  WAITING_FOR_AUTH: '🔐 Ожидание авторизации',
-  PENDING: '⏸ Приостановлен',
-  CANCELLED: '🚫 Отменён',
-  CANCELED: '🚫 Отменён',
-}
-
-function getStatusClass(status: string): string {
-  return status.toLowerCase().replace('_', '-')
-}
 
 export function ScansPage() {
   const navigate = useNavigate()
-  const [scans, setScans] = useState<Scan[]>([])
-  const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [autoDetectStatus, setAutoDetectStatus] = useState<'idle' | 'pending' | 'ok' | 'fail'>('idle')
-  const [currentJobStatus, setCurrentJobStatus] = useState<string>('Нет активной задачи')
-  const [currentJobKind, setCurrentJobKind] = useState<string>('')
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null)
+  const {
+    scans,
+    loading,
+    refreshing,
+    cancelingIds,
+    autoDetectStatus,
+    loadScans,
+    handleCreateScan,
+    handleDeleteScan,
+    handleCancelScan,
+  } = useScans()
+
   const [detectOpen, setDetectOpen] = useState(true)
-  const [jobOpen, setJobOpen] = useState(true)
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const [downloadTargetJobId, setDownloadTargetJobId] = useState<string | null>(null)
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const scansPollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    loadScans()
-    scansPollingRef.current = setInterval(() => {
-      loadScans({ silent: true })
-    }, 10000)
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
-      if (scansPollingRef.current) clearInterval(scansPollingRef.current)
-    }
-  }, [])
-
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
-  const formatStatus = (status: ScanStatusResponse): string => {
-    const lines: string[] = []
-    lines.push(`Статус: ${statusLabels[status.status] || status.status}`)
-    if (status.elapsedSeconds !== undefined) {
-      lines.push(`Время: ${formatTime(status.elapsedSeconds)}`)
-    }
-    if (status.totalSteps && status.totalSteps > 0) {
-      lines.push(`Прогресс: ${status.completedSteps}/${status.totalSteps} (${status.progress}%)`)
-      if (status.steps && status.steps.length > 0) {
-        lines.push('')
-        status.steps.forEach((step, i) => {
-          const stepName = step.stepType === 'katana' ? 'Katana' :
-                        step.stepType === 'zapBaseline' ? 'ZAP' :
-                        step.stepType === 'wapiti' ? 'Wapiti' :
-                        step.stepType === 'nucleiCLI' ? 'Nuclei' : step.stepType
-          const stepStatus = step.status === 'SUCCEEDED' ? '✓' :
-                            step.status === 'RUNNING' ? '…' :
-                            step.status === 'FAILED' ? '✗' : '-'
-          lines.push(`  ${stepStatus} ${stepName}`)
-        })
-      }
-    }
-    return lines.join('\n')
-  }
-
-  const startStatusPolling = (jobId: string) => {
-    setCurrentJobId(jobId)
-    setCurrentJobStatus('Запуск...')
-    setCurrentJobKind('run')
-    
-    if (pollingRef.current) clearInterval(pollingRef.current)
-    
-    pollingRef.current = setInterval(async () => {
-      try {
-        const status = await api.getScanStatus(jobId)
-        if (status && typeof status === 'object' && 'status' in status) {
-          const typedStatus = status as ScanStatusResponse
-          setCurrentJobStatus(formatStatus(typedStatus))
-          
-          const statusStr = typedStatus.status
-          const kind = statusKind(statusStr)
-          setCurrentJobKind(kind)
-          
-          if (['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS', 'CANCELLED', 'CANCELED'].includes(statusStr)) {
-            if (pollingRef.current) clearInterval(pollingRef.current)
-          }
-        } else {
-          setCurrentJobStatus(typeof status === 'object' ? JSON.stringify(status, null, 2) : String(status))
-        }
-      } catch (err) {
-        console.error('Status polling error:', err)
-      }
-    }, 3000)
-  }
-
-  const statusKind = (st: string): string => {
-    if (st === 'SUCCEEDED') return 'ok'
-    if (st === 'FAILED') return 'bad'
-    if (st === 'PARTIAL_SUCCESS') return 'partial'
-    if (st === 'QUEUED' || st === 'RUNNING') return 'run'
-    if (st === 'CANCELLED' || st === 'CANCELED') return 'partial'
-    return ''
-  }
-
-  const loadScans = async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) {
-      setLoading(true)
-    }
-    setRefreshing(true)
+  const handleDownload = async (jobId: string, format: ReportFormat = 'docx') => {
     try {
-      const data = await api.getScans()
-      const sorted = [...(data || [])].sort((a, b) => {
-        const at = new Date(a.createdAt).getTime()
-        const bt = new Date(b.createdAt).getTime()
-        return bt - at
-      })
-      setScans(sorted)
+      await downloadReport(jobId, format)
     } catch (err) {
-      console.error(err)
-    } finally {
-      if (!opts?.silent) {
-        setLoading(false)
-      }
-      setRefreshing(false)
+      alert(err instanceof Error ? err.message : String(err))
     }
   }
 
-  const handleCreateScan = async (targetUrl: string, config?: ScanConfig) => {
-    setAutoDetectStatus('pending')
+  const handleViewEndpoints = async (jobId: string) => {
     try {
-      const scan = await api.createScan({ targetUrl, ...config })
-      const jobId = scan.jobId || scan.id
-      if (jobId) {
-        setAutoDetectStatus('ok')
-        loadScans({ silent: true })
-        startStatusPolling(jobId)
-      } else {
-        setAutoDetectStatus('fail')
-      }
-    } catch (err) {
-      console.error(err)
-      setAutoDetectStatus('fail')
-      const msg = err instanceof Error ? err.message : String(err)
-      alert(msg)
-    }
-  }
-
-  const handleDeleteScan = async (jobId: string) => {
-    await api.deleteScan(jobId)
-    loadScans()
-  }
-
-  const handleDownload = async (jobId: string, format: 'md' | 'html' | 'docx' = 'md') => {
-    try {
-      const { blob, filename, contentType } = await api.getReport(jobId, format)
+      const endpoints = await api.getScanEndpoints(jobId)
+      const blob = new Blob([endpoints.join('\n')], { type: 'text/plain;charset=utf-8' })
       const url = URL.createObjectURL(blob)
-      if (contentType.includes('text/html')) {
-        window.open(url, '_blank')
-      } else {
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-      }
+      window.open(url, '_blank')
       setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      alert(msg)
+      alert(err instanceof Error ? err.message : String(err))
     }
   }
 
   const openDownloadModal = (jobId: string) => {
     setDownloadTargetJobId(jobId)
     setDownloadModalOpen(true)
-  }
-
-  const closeDownloadModal = () => {
-    setDownloadModalOpen(false)
-  }
-
-  const handleViewEndpoints = async (jobId: string) => {
-    try {
-      const endpoints = await api.getScanEndpoints(jobId)
-      const text = endpoints.join('\n')
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank')
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      alert(msg)
-    }
-  }
-
-  const handleViewScan = (jobId: string) => {
-    navigate(`/scans/${jobId}`)
-  }
-
-  const handleCancelScan = async (jobId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (cancelingIds.has(jobId)) return
-    const previousStatus = scans.find(s => s.jobId === jobId || s.id === jobId)?.status
-    setCancelingIds(prev => {
-      const next = new Set(prev)
-      next.add(jobId)
-      return next
-    })
-    // Optimistic UI: show cancelled immediately without waiting for poll.
-    setScans(prev => prev.map(s => (s.jobId === jobId || s.id === jobId ? { ...s, status: 'CANCELLED' as Scan['status'] } : s)))
-    try {
-      await api.cancelScan(jobId)
-      loadScans()
-    } catch (err) {
-      console.error('Cancel error:', err)
-      if (previousStatus) {
-        setScans(prev => prev.map(s => (s.jobId === jobId || s.id === jobId ? { ...s, status: previousStatus } : s)))
-      }
-    } finally {
-      setCancelingIds(prev => {
-        const next = new Set(prev)
-        next.delete(jobId)
-        return next
-      })
-    }
   }
 
   const autoDetectBadgeClass =
@@ -262,9 +71,11 @@ export function ScansPage() {
           <section className={styles.card}>
             <div className={styles.sectionTitleWrap}>
               <p className={styles.cardHead}>Создание скана</p>
-              <button 
+              <button
+                type="button"
                 className={`${styles.btnToggle} ${!detectOpen ? styles.collapsed : ''}`}
                 onClick={() => setDetectOpen(!detectOpen)}
+                aria-expanded={detectOpen}
               >
                 {detectOpen ? '−' : '+'}
               </button>
@@ -272,12 +83,15 @@ export function ScansPage() {
             {detectOpen && (
               <div className={styles.detectContent}>
                 <p className={styles.detectHint}>
-                  Статус последней попытки отправить форму выше (проверка логина к цели на сервере). Итог работы скана — в блоке «Задача».
+                  Статус последней попытки отправить форму (проверка логина на сервере). Ход и результат скана — в «Истории сканов» справа или на странице деталей.
                 </p>
                 <div className={styles.badgeRow}>
                   <span className={`${styles.badge} ${autoDetectBadgeClass}`}>
-                    <span className={styles.icon}>
-                      {autoDetectStatus === 'idle' ? '○' : autoDetectStatus === 'pending' ? '…' : autoDetectStatus === 'ok' ? '✓' : '✕'}
+                    <span className={styles.icon} aria-hidden>
+                      {autoDetectStatus === 'idle' && <Circle className={styles.uiIcon} size={14} strokeWidth={2} />}
+                      {autoDetectStatus === 'pending' && <Loader2 className={`${styles.uiIcon} ${styles.spinIcon}`} size={14} strokeWidth={2} />}
+                      {autoDetectStatus === 'ok' && <Check className={styles.uiIcon} size={14} strokeWidth={2} />}
+                      {autoDetectStatus === 'fail' && <X className={styles.uiIcon} size={14} strokeWidth={2} />}
                     </span>
                     {autoDetectStatus === 'idle' ? 'ещё не отправляли' : autoDetectStatus === 'pending' ? 'отправка…' : autoDetectStatus === 'ok' ? 'принято в очередь' : 'отклонено'}
                   </span>
@@ -285,151 +99,28 @@ export function ScansPage() {
               </div>
             )}
           </section>
-
-          <section className={styles.card}>
-            <div className={styles.sectionTitleWrap}>
-              <h2 className={styles.sectionTitle}>Задача</h2>
-              <button 
-                className={`${styles.btnToggle} ${!jobOpen ? styles.collapsed : ''}`}
-                onClick={() => setJobOpen(!jobOpen)}
-              >
-                {jobOpen ? '−' : '+'}
-              </button>
-            </div>
-            {jobOpen && (
-              <div className={styles.jobStatusWrapper}>
-                <pre className={`${styles.jobStatus} ${styles[currentJobKind]}`}>{currentJobStatus}</pre>
-                {currentJobId && (
-                  <div className={styles.links}>
-                    <a href={`/api/v1/scans/${currentJobId}/reports?format=md`} target="_blank" rel="noopener">Markdown</a>
-                    <a href={`/api/v1/scans/${currentJobId}/reports?format=html`} target="_blank" rel="noopener">HTML</a>
-                    <a href={`/api/v1/scans/${currentJobId}/reports?format=docx`} target="_blank" rel="noopener">DOCX</a>
-                    <a href={`/api/v1/scans/${currentJobId}/events`} target="_blank" rel="noopener">JSONL</a>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
         </div>
 
-        <aside className={styles.sidebar}>
-          <div className={styles.sidebarHeader}>
-            <h3 className={styles.sidebarTitle}>История сканов</h3>
-            <button
-              className={`${styles.btnRefresh} ${refreshing ? styles.btnRefreshSpinning : ''}`}
-              onClick={() => loadScans({ silent: true })}
-              title="Обновить список"
-              disabled={refreshing}
-            >
-              ↻
-            </button>
-          </div>
-          <div className={styles.jobsList}>
-            {loading ? (
-              <div className={styles.jobsLoading}>Загрузка...</div>
-            ) : scans.length === 0 ? (
-              <div className={styles.jobsEmpty}>Нет сохранённых сканов</div>
-            ) : (
-              scans.map((scan) => (
-                <div 
-                  key={scan.id} 
-                  className={styles.jobCard}
-                  onClick={() => handleViewScan(scan.jobId || scan.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      handleViewScan(scan.jobId || scan.id)
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div className={styles.jobCardHeader}>
-                    <span className={styles.jobCardId}>#{scan.jobId?.substring(0, 8) || scan.id?.substring(0, 8)}</span>
-                    <span className={`${styles.jobStatusBadge} ${styles[getStatusClass(scan.status)]}`}>
-                      {statusLabels[scan.status] || scan.status}
-                    </span>
-                  </div>
-                  <div className={styles.jobCardTarget} title={scan.targetUrl}>{scan.targetUrl}</div>
-                  <div className={styles.jobCardDate}>
-                    {new Date(scan.createdAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}
-                  </div>
-                  <div className={styles.jobCardActions}>
-                    {['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH'].includes(scan.status) && (
-                      <button 
-                        className={styles.btnJobAction}
-                        onClick={(e) => handleCancelScan(scan.jobId || scan.id, e)}
-                        disabled={cancelingIds.has(scan.jobId || scan.id)}
-                        title="Отменить"
-                      >
-                        <span className={styles.actionIcon}>{cancelingIds.has(scan.jobId || scan.id) ? '…' : '⏹'}</span>
-                        <span className={styles.actionText}>Стоп</span>
-                      </button>
-                    )}
-                    <button 
-                      className={styles.btnJobAction}
-                      onClick={(e) => { e.stopPropagation(); openDownloadModal(scan.jobId || scan.id) }}
-                      title="Скачать отчёт"
-                    >
-                      <span className={styles.actionIcon}>📥</span>
-                      <span className={styles.actionText}>Отчёт</span>
-                    </button>
-                    <button 
-                      className={styles.btnJobAction}
-                      onClick={(e) => { e.stopPropagation(); handleViewEndpoints(scan.jobId || scan.id) }}
-                      title="Эндпоинты"
-                    >
-                      <span className={styles.actionIcon}>📋</span>
-                      <span className={styles.actionText}>URL</span>
-                    </button>
-                    <button 
-                      className={`${styles.btnJobAction} ${styles.delete}`}
-                      onClick={(e) => { e.stopPropagation(); handleDeleteScan(scan.jobId || scan.id) }}
-                      title="Удалить"
-                    >
-                      <span className={styles.actionIcon}>🗑</span>
-                      <span className={styles.actionText}>Удалить</span>
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </aside>
+        <ScanHistorySidebar
+          scans={scans}
+          loading={loading}
+          refreshing={refreshing}
+          cancelingIds={cancelingIds}
+          onRefresh={() => loadScans({ silent: true })}
+          onView={(jobId) => navigate(`/scans/${jobId}`)}
+          onCancel={handleCancelScan}
+          onDownload={openDownloadModal}
+          onViewEndpoints={handleViewEndpoints}
+          onDelete={handleDeleteScan}
+        />
       </div>
 
-      <div
-        className={`${styles.modalOverlay} ${!downloadModalOpen ? styles.modalHidden : ''}`}
-        aria-hidden={!downloadModalOpen}
-        onClick={closeDownloadModal}
-      >
-        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <h3>Скачать отчёт</h3>
-            <button type="button" className={styles.btnClose} onClick={closeDownloadModal}>&times;</button>
-          </div>
-          <div className={styles.modalBody}>
-            <div className={styles.downloadJobId}>#{downloadTargetJobId?.substring(0, 8)}</div>
-            <div className={styles.downloadFormats}>
-              <button type="button" className={styles.btnFormat} onClick={() => { if (downloadTargetJobId) { handleDownload(downloadTargetJobId, 'docx'); closeDownloadModal() } }}>
-                <span className={styles.formatIcon}>📝</span>
-                <span className={styles.formatName}>Word (DOCX)</span>
-                <span className={styles.formatDesc}>Документ Word</span>
-              </button>
-              <button type="button" className={styles.btnFormat} onClick={() => { if (downloadTargetJobId) { handleDownload(downloadTargetJobId, 'md'); closeDownloadModal() } }}>
-                <span className={styles.formatIcon}>📄</span>
-                <span className={styles.formatName}>Markdown</span>
-                <span className={styles.formatDesc}>.md файл</span>
-              </button>
-              <button type="button" className={styles.btnFormat} onClick={() => { if (downloadTargetJobId) { handleDownload(downloadTargetJobId, 'html'); closeDownloadModal() } }}>
-                <span className={styles.formatIcon}>🌐</span>
-                <span className={styles.formatName}>HTML</span>
-                <span className={styles.formatDesc}>Красивый веб-отчёт</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <DownloadReportModal
+        open={downloadModalOpen}
+        jobId={downloadTargetJobId}
+        onClose={() => setDownloadModalOpen(false)}
+        onDownload={handleDownload}
+      />
     </div>
   )
 }

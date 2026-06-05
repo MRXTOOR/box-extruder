@@ -42,5 +42,19 @@ CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
 CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_users_login ON users(login);
 
+-- CI/CD API tokens (long-lived UUID secrets for Jenkins pipelines)
+CREATE TABLE IF NOT EXISTS ci_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ci_tokens_user ON ci_tokens(user_id);
+
 -- Note: Default admin user is created via CLI on first run:
 -- go run ./cmd/cli/main.go user add --login=admin --password=admin --role=admin

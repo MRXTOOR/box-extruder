@@ -59,9 +59,10 @@ services:
     ports:
       - "${SERVER_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
       retries: 3
 
   dast-worker:
@@ -92,6 +93,15 @@ services:
     volumes:
       - ../work:/workspace/work
       - ../templates:/workspace/templates:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  dast-ci-runner:
+    profiles: ["ci"]
+    build:
+      context: ../jenkins
+      dockerfile: Dockerfile
+    image: ${CI_RUNNER_IMAGE:-appsec-dast/ci-runner}:${VERSION:-latest}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

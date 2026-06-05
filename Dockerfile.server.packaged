@@ -1,0 +1,7 @@
+# Pre-built Linux binary (go build -o bin/dast-server with GOOS=linux GOARCH=amd64).
+FROM busybox:1.36
+COPY bin/dast-server /dast-server
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/health
+CMD ["/dast-server"]

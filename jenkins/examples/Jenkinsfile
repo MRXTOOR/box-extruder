@@ -1,0 +1,40 @@
+// Typical pipeline: target URL + optional app login/password. authUrl is optional
+// (the platform tries common /api/.../login paths and HTML discovery).
+//
+// Prerequisites: Global Library "dast", credential "dast-api", Docker Pipeline plugin,
+// image appsec-dast/ci-runner:latest (see jenkins/README.md).
+@Library('dast') _
+
+pipeline {
+    agent any
+
+    environment {
+        DAST_API = 'http://dast-server:8080'
+        DAST_UI  = 'http://localhost'
+    }
+
+    stages {
+        stage('DAST scan') {
+            steps {
+                script {
+                    def result = dastScan(
+                        apiUrl: "${env.DAST_API}",
+                        uiUrl: "${env.DAST_UI}",
+                        apiCredentialsId: 'dast-api',
+
+                        target: 'https://staging.myapp.example.com',
+                        login: 'user@example.com',
+                        password: 'staging-secret',
+
+                        // authUrl: 'https://staging.myapp.example.com/api/v1/auth/login',
+                        insecureSkipVerify: true,
+                        failOn: 'HIGH',
+                        timeoutMinutes: 60,
+                        reportFormats: ['docx']
+                    )
+                    echo "DAST: jobId=${result.jobId} passed=${result.passed} findings=${result.total}"
+                }
+            }
+        }
+    }
+}

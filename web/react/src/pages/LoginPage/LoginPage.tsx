@@ -1,34 +1,31 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../../shared/api/api'
+import { setToken } from '../../shared/auth/token'
 
 export function LoginPage() {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-
+    setLoading(true)
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login, password }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        setError(data.error || 'Ошибка входа')
+      const { token } = await api.login(login, password)
+      if (!token) {
+        setError('Ошибка входа')
         return
       }
-
-      const data = await res.json()
-      localStorage.setItem('token', data.token)
+      setToken(token)
       navigate('/')
-    } catch {
-      setError('Ошибка сети')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка сети')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -42,14 +39,16 @@ export function LoginPage() {
           placeholder="Логин"
           value={login}
           onChange={(e) => setLogin(e.target.value)}
+          disabled={loading}
         />
         <input
           type="password"
           placeholder="Пароль"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
         />
-        <button type="submit">Войти</button>
+        <button type="submit" disabled={loading}>{loading ? 'Вход...' : 'Войти'}</button>
       </form>
     </div>
   )

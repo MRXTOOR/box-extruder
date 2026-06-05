@@ -1,0 +1,54 @@
+// Build with Parameters: target + app login/password (most common case).
+@Library('dast') _
+
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'TARGET_URL', defaultValue: '', description: 'URL приложения для сканирования')
+        string(name: 'APP_LOGIN', defaultValue: '', description: 'Логин в приложение (опционально)')
+        password(name: 'APP_PASSWORD', defaultValue: '', description: 'Пароль приложения (опционально)')
+        credentials(
+            name: 'DAST_API_CREDS',
+            description: 'Сервисная учётка DAST API',
+            credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl',
+            required: true
+        )
+        string(name: 'AUTH_URL', defaultValue: '', description: 'URL логина (опционально, иначе автоподбор)')
+        booleanParam(name: 'INSECURE_SKIP_VERIFY', defaultValue: false, description: 'Не проверять TLS цели')
+        choice(name: 'FAIL_ON', choices: ['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'], description: 'Quality gate')
+        string(name: 'TIMEOUT_MINUTES', defaultValue: '60', description: 'Таймаут, мин')
+    }
+
+    environment {
+        DAST_API = 'https://dast.example.com:8080'
+        DAST_UI  = 'https://dast.example.com'
+    }
+
+    stages {
+        stage('DAST scan') {
+            steps {
+                script {
+                    def scanArgs = [
+                        apiUrl: "${env.DAST_API}",
+                        uiUrl: "${env.DAST_UI}",
+                        apiCredentialsId: params.DAST_API_CREDS,
+                        target: params.TARGET_URL,
+                        insecureSkipVerify: params.INSECURE_SKIP_VERIFY,
+                        failOn: params.FAIL_ON ?: null,
+                        timeoutMinutes: params.TIMEOUT_MINUTES as int,
+                    ]
+                    if (params.APP_LOGIN?.trim()) {
+                        scanArgs.login = params.APP_LOGIN.trim()
+                        scanArgs.password = params.APP_PASSWORD
+                    }
+                    if (params.AUTH_URL?.trim()) {
+                        scanArgs.authUrl = params.AUTH_URL.trim()
+                    }
+                    def result = dastScan(scanArgs)
+                    echo "DAST gate passed=${result.passed}, findings=${result.total}"
+                }
+            }
+        }
+    }
+}

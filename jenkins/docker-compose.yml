@@ -1,0 +1,31 @@
+# Local / CI: run dast-scan.sh in the runner container.
+# Start the DAST stack first: docker compose -f deploy/docker-compose.yml up -d
+#
+#   cd jenkins
+#   docker compose build
+#   docker compose run --rm ci-runner
+services:
+  ci-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: appsec-dast/ci-runner:latest
+    environment:
+      DAST_API_URL: ${DAST_API_URL:-http://host.docker.internal:8080}
+      DAST_UI_URL: ${DAST_UI_URL:-http://localhost}
+      DAST_CI_TOKEN: ${DAST_CI_TOKEN:-}
+      DAST_USER: ${DAST_USER:-admin}
+      DAST_PASS: ${DAST_PASS:-admin123}
+      DAST_TARGET: ${DAST_TARGET:-https://example.invalid}
+      DAST_API_INSECURE: ${DAST_API_INSECURE:-false}
+      DAST_INSECURE_SKIP_VERIFY: ${DAST_INSECURE_SKIP_VERIFY:-true}
+      DAST_FAIL_ON: ${DAST_FAIL_ON:-HIGH}
+      DAST_TIMEOUT_MINUTES: ${DAST_TIMEOUT_MINUTES:-60}
+      DAST_AUTH_URL: ${DAST_AUTH_URL:-}
+      DAST_VERIFY_URL: ${DAST_VERIFY_URL:-}
+      APP_USER: ${APP_USER:-}
+      APP_PASS: ${APP_PASS:-}
+    volumes:
+      - ./out:/work
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

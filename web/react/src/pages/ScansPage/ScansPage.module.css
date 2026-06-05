@@ -400,37 +400,31 @@
   border-color: var(--accent);
 }
 
-.jobStatusWrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.jobStatus {
-  font-size: 0.78rem;
-  font-weight: 600;
-  font-family: var(--mono);
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: rgba(13, 17, 23, 0.65);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  white-space: pre-wrap;
-}
-
-.jobStatus.run { color: var(--warn); border-color: rgba(210, 153, 34, 0.35); }
-.jobStatus.ok { color: var(--ok); border-color: rgba(35, 134, 54, 0.35); }
-.jobStatus.bad { color: var(--bad); border-color: rgba(248, 81, 73, 0.35); }
-.jobStatus.partial { color: #d4a72c; border-color: rgba(212, 167, 44, 0.35); }
-
 .btnJobAction.delete:hover {
   border-color: var(--bad);
   color: var(--bad);
 }
 
+.uiIcon {
+  flex-shrink: 0;
+}
+
+.btnRefreshSpinning .uiIcon,
+.spinIcon {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .actionIcon {
-  font-size: 0.92rem;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
 
 .actionText {
@@ -571,7 +565,10 @@
 }
 
 .formatIcon {
-  font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
 }
 
 .formatName {

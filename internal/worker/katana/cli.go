@@ -59,83 +59,10 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	args := []string{"-silent", "-nc", "-jsonl", "-ob", "-dr"}
-	if opts.Depth > 0 {
-		args = append(args, "-d", fmt.Sprintf("%d", opts.Depth))
-	}
-	// NOTE: current bundled katana build does not support -max-urls.
-	// We keep MaxURLs in config for future compatibility but do not pass an unsupported flag.
-	for _, u := range opts.Targets {
-		u = strings.TrimSpace(u)
-		if u == "" {
-			continue
-		}
-		args = append(args, "-u", u)
-	}
-	for _, h := range opts.Headers {
-		h = strings.TrimSpace(h)
-		if h == "" {
-			continue
-		}
-		args = append(args, "-H", h)
-	}
-	if opts.Concurrency > 0 {
-		args = append(args, "-c", fmt.Sprintf("%d", opts.Concurrency))
-	}
-	if opts.TimeoutSecs > 0 {
-		args = append(args, "-timeout", fmt.Sprintf("%d", opts.TimeoutSecs))
-	}
-	if opts.RateLimit > 0 {
-		args = append(args, "-rl", fmt.Sprintf("%d", opts.RateLimit))
-	}
-	if d := strings.TrimSpace(opts.CrawlDuration); d != "" {
-		args = append(args, "-ct", d)
-	}
-	for _, re := range opts.CrawlScope {
-		re = strings.TrimSpace(re)
-		if re == "" {
-			continue
-		}
-		args = append(args, "-cs", re)
-	}
-	for _, re := range opts.CrawlOutScope {
-		re = strings.TrimSpace(re)
-		if re == "" {
-			continue
-		}
-		args = append(args, "-cos", re)
-	}
-	if opts.Headless {
-		args = append(args, "-headless")
-	}
-	args = append(args, opts.ExtraArgs...)
-
-	var cmd *exec.Cmd
-	if img := DockerKatanaImage(); img != "" {
-		if _, derr := exec.LookPath("docker"); derr != nil {
-			return nil, nil, fmt.Errorf("katana CLI: DAST_KATANA_DOCKER_IMAGE=%q задан, но docker не найден: %w", img, derr)
-		}
-		dockerArgs := []string{
-			"run", "--rm",
-			"--network", "host",
-			"-i",
-		}
-		if extra := strings.Fields(os.Getenv("DAST_KATANA_DOCKER_EXTRA")); len(extra) > 0 {
-			dockerArgs = append(dockerArgs, extra...)
-		}
-		dockerArgs = append(dockerArgs, img)
-		dockerArgs = append(dockerArgs, args...)
-		cmd = exec.CommandContext(ctx, "docker", dockerArgs...)
-	} else {
-		bin := strings.TrimSpace(opts.Binary)
-		if bin == "" {
-			bin = ResolveKatanaBinary()
-		}
-		execPath, err := exec.LookPath(bin)
-		if err != nil {
-			return nil, nil, fmt.Errorf("katana CLI: binary %q not found (%w); install katana, set DAST_KATANA_BIN, or DAST_KATANA_DOCKER_IMAGE (e.g. projectdiscovery/katana:latest)", bin, err)
-		}
-		cmd = exec.CommandContext(ctx, execPath, args...)
+	args := buildKatanaArgs(opts)
+	cmd, err := buildKatanaCmd(ctx, opts, args)
+	if err != nil {
+		return nil, nil, err
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -161,6 +88,78 @@ func RunCLI(opts CLIOptions) ([]model.Finding, []model.Evidence, error) {
 		return nil, nil, fmt.Errorf("katana CLI: no JSONL output: %s", truncateRunMsg(detail, 4000))
 	}
 	return nil, nil, fmt.Errorf("katana CLI: no URLs in JSONL output: %s", truncateRunMsg(detail, 4000))
+}
+
+// buildKatanaArgs assembles the katana CLI flags from the options.
+func buildKatanaArgs(opts CLIOptions) []string {
+	args := []string{"-silent", "-nc", "-jsonl", "-ob", "-dr"}
+	if opts.Depth > 0 {
+		args = append(args, "-d", fmt.Sprintf("%d", opts.Depth))
+	}
+	// NOTE: current bundled katana build does not support -max-urls.
+	// We keep MaxURLs in config for future compatibility but do not pass an unsupported flag.
+	for _, u := range opts.Targets {
+		if u = strings.TrimSpace(u); u != "" {
+			args = append(args, "-u", u)
+		}
+	}
+	for _, h := range opts.Headers {
+		if h = strings.TrimSpace(h); h != "" {
+			args = append(args, "-H", h)
+		}
+	}
+	if opts.Concurrency > 0 {
+		args = append(args, "-c", fmt.Sprintf("%d", opts.Concurrency))
+	}
+	if opts.TimeoutSecs > 0 {
+		args = append(args, "-timeout", fmt.Sprintf("%d", opts.TimeoutSecs))
+	}
+	if opts.RateLimit > 0 {
+		args = append(args, "-rl", fmt.Sprintf("%d", opts.RateLimit))
+	}
+	if d := strings.TrimSpace(opts.CrawlDuration); d != "" {
+		args = append(args, "-ct", d)
+	}
+	for _, re := range opts.CrawlScope {
+		if re = strings.TrimSpace(re); re != "" {
+			args = append(args, "-cs", re)
+		}
+	}
+	for _, re := range opts.CrawlOutScope {
+		if re = strings.TrimSpace(re); re != "" {
+			args = append(args, "-cos", re)
+		}
+	}
+	if opts.Headless {
+		args = append(args, "-headless")
+	}
+	return append(args, opts.ExtraArgs...)
+}
+
+// buildKatanaCmd builds the exec command, either via the configured docker image
+// or a local/binary katana.
+func buildKatanaCmd(ctx context.Context, opts CLIOptions, args []string) (*exec.Cmd, error) {
+	if img := DockerKatanaImage(); img != "" {
+		if _, derr := exec.LookPath("docker"); derr != nil {
+			return nil, fmt.Errorf("katana CLI: DAST_KATANA_DOCKER_IMAGE=%q задан, но docker не найден: %w", img, derr)
+		}
+		dockerArgs := []string{"run", "--rm", "--network", "host", "-i"}
+		if extra := strings.Fields(os.Getenv("DAST_KATANA_DOCKER_EXTRA")); len(extra) > 0 {
+			dockerArgs = append(dockerArgs, extra...)
+		}
+		dockerArgs = append(dockerArgs, img)
+		dockerArgs = append(dockerArgs, args...)
+		return exec.CommandContext(ctx, "docker", dockerArgs...), nil
+	}
+	bin := strings.TrimSpace(opts.Binary)
+	if bin == "" {
+		bin = ResolveKatanaBinary()
+	}
+	execPath, err := exec.LookPath(bin)
+	if err != nil {
+		return nil, fmt.Errorf("katana CLI: binary %q not found (%w); install katana, set DAST_KATANA_BIN, or DAST_KATANA_DOCKER_IMAGE (e.g. projectdiscovery/katana:latest)", bin, err)
+	}
+	return exec.CommandContext(ctx, execPath, args...), nil
 }
 
 func errMsg(stderr string, stdout []byte, runErr error) string {
@@ -201,6 +200,9 @@ type katanaJSONLine struct {
 	} `json:"response"`
 }
 
+// jsonObjectStart is the ASCII byte for the opening brace of a JSON object.
+const jsonObjectStart = 0x7B
+
 func parseKatanaJSONL(raw []byte, ctxID string, dedupe config.DedupeConfig) ([]model.Finding, []model.Evidence, error) {
 	var findings []model.Finding
 	var evidence []model.Evidence
@@ -214,7 +216,7 @@ func parseKatanaJSONL(raw []byte, ctxID string, dedupe config.DedupeConfig) ([]m
 		if len(line) == 0 {
 			continue
 		}
-		if len(line) < 2 || line[0] != '{' {
+		if len(line) < 2 || line[0] != jsonObjectStart {
 			continue
 		}
 		var row katanaJSONLine

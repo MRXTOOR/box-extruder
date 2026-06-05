@@ -118,61 +118,91 @@ func runCmd() {
 	os.Exit(code)
 }
 
+// interactiveLoginInputs holds the answers collected in interactive mode.
+type interactiveLoginInputs struct {
+	baseURL     string
+	loginURL    string
+	verifyURL   string
+	contentType string
+	userField   string
+	passField   string
+	tokenPath   string
+	useCookies  bool
+}
+
 func buildInteractiveRunConfig() (*config.ScanAsCode, error) {
 	in := bufio.NewReader(os.Stdin)
 	fmt.Fprintln(os.Stderr, "Interactive mode: setup target and auth")
+	inputs, err := promptInteractiveInputs(in)
+	if err != nil {
+		return nil, err
+	}
+	cfg := buildInteractiveConfig(inputs)
+	return &cfg, nil
+}
+
+// promptInteractiveInputs gathers and validates the target/auth answers.
+func promptInteractiveInputs(in *bufio.Reader) (interactiveLoginInputs, error) {
+	var out interactiveLoginInputs
 	baseURL, err := promptLine(in, "Target URL (e.g. https://site.example)", true)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
-	u, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("invalid target URL")
+	if u, err := url.Parse(strings.TrimSpace(baseURL)); err != nil || u.Scheme == "" || u.Host == "" {
+		return out, fmt.Errorf("invalid target URL")
 	}
-	loginURL, err := promptLine(in, "Login endpoint URL", true)
-	if err != nil {
-		return nil, err
+	out.baseURL = strings.TrimSpace(baseURL)
+
+	if out.loginURL, err = promptTrimmed(in, "Login endpoint URL", true); err != nil {
+		return out, err
 	}
-	verifyURL, err := promptLine(in, "Verify endpoint URL (/me, /userinfo)", true)
-	if err != nil {
-		return nil, err
+	if out.verifyURL, err = promptTrimmed(in, "Verify endpoint URL (/me, /userinfo)", true); err != nil {
+		return out, err
 	}
-	contentType, err := promptLine(in, "Login content type [application/json|application/x-www-form-urlencoded] (default application/json)", false)
-	if err != nil {
-		return nil, err
+	if out.contentType, err = promptDefault(in, "Login content type [application/json|application/x-www-form-urlencoded] (default application/json)", "application/json"); err != nil {
+		return out, err
 	}
-	contentType = strings.TrimSpace(contentType)
-	if contentType == "" {
-		contentType = "application/json"
+	if out.userField, err = promptTrimmed(in, "Username/email field name in login body (e.g. email, username, login)", true); err != nil {
+		return out, err
 	}
-	userField, err := promptLine(in, "Username/email field name in login body (e.g. email, username, login)", true)
-	if err != nil {
-		return nil, err
+	if out.passField, err = promptDefault(in, "Password field name in login body (default password)", "password"); err != nil {
+		return out, err
 	}
-	passField, err := promptLine(in, "Password field name in login body (default password)", false)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(passField) == "" {
-		passField = "password"
-	}
-	tokenPath, err := promptLine(in, "Token JSON path (default access_token)", false)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(tokenPath) == "" {
-		tokenPath = "access_token"
+	if out.tokenPath, err = promptDefault(in, "Token JSON path (default access_token)", "access_token"); err != nil {
+		return out, err
 	}
 	useCookiesRaw, err := promptLine(in, "Use cookie session fallback? [y/N]", false)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
-	useCookies := strings.EqualFold(strings.TrimSpace(useCookiesRaw), "y") || strings.EqualFold(strings.TrimSpace(useCookiesRaw), "yes")
+	useCookiesRaw = strings.TrimSpace(useCookiesRaw)
+	out.useCookies = strings.EqualFold(useCookiesRaw, "y") || strings.EqualFold(useCookiesRaw, "yes")
+	return out, nil
+}
 
+// promptTrimmed reads a line and trims surrounding whitespace.
+func promptTrimmed(in *bufio.Reader, prompt string, required bool) (string, error) {
+	v, err := promptLine(in, prompt, required)
+	return strings.TrimSpace(v), err
+}
+
+// promptDefault reads an optional line, falling back to def when empty.
+func promptDefault(in *bufio.Reader, prompt, def string) (string, error) {
+	v, err := promptLine(in, prompt, false)
+	if err != nil {
+		return "", err
+	}
+	if v = strings.TrimSpace(v); v == "" {
+		return def, nil
+	}
+	return v, nil
+}
+
+func buildInteractiveConfig(inputs interactiveLoginInputs) config.ScanAsCode {
 	cfg := config.DefaultScanAsCode()
 	cfg.Job.Name = "interactive-scan"
-	cfg.Targets = []config.Target{{Type: "web", BaseURL: strings.TrimSpace(baseURL), StartPoints: []string{strings.TrimSpace(baseURL)}}}
-	cfg.Scope.Allow = []string{"^" + regexpQuoteURLPrefix(strings.TrimSpace(baseURL)) + ".*"}
+	cfg.Targets = []config.Target{{Type: "web", BaseURL: inputs.baseURL, StartPoints: []string{inputs.baseURL}}}
+	cfg.Scope.Allow = []string{"^" + regexpQuoteURLPrefix(inputs.baseURL) + ".*"}
 	cfg.Scope.Deny = nil
 	cfg.Auth = &config.Auth{
 		Strategy: "providerChain",
@@ -188,17 +218,17 @@ func buildInteractiveRunConfig() (*config.ScanAsCode, error) {
 				{Name: "password", Prompt: "Password", Sensitive: true, Required: true},
 			},
 			GenericLogin: &config.GenericLoginConfig{
-				LoginURL:           strings.TrimSpace(loginURL),
-				LoginMethod:        "POST",
-				ContentType:        contentType,
-				CredentialFields:   map[string]string{"username": strings.TrimSpace(userField), "password": strings.TrimSpace(passField)},
-				TokenPath:          strings.TrimSpace(tokenPath),
-				TokenType:          "Bearer",
-				TokenHeaderName:    "Authorization",
-				VerifyURL:          strings.TrimSpace(verifyURL),
-				VerifyMethod:       "GET",
+				LoginURL:             inputs.loginURL,
+				LoginMethod:          "POST",
+				ContentType:          inputs.contentType,
+				CredentialFields:     map[string]string{"username": inputs.userField, "password": inputs.passField},
+				TokenPath:            inputs.tokenPath,
+				TokenType:            "Bearer",
+				TokenHeaderName:      "Authorization",
+				VerifyURL:            inputs.verifyURL,
+				VerifyMethod:         "GET",
 				VerifyExpectedStatus: 200,
-				UseCookies:         useCookies,
+				UseCookies:           inputs.useCookies,
 			},
 		}},
 	}
@@ -207,7 +237,7 @@ func buildInteractiveRunConfig() (*config.ScanAsCode, error) {
 		{StepType: "zapBaseline", Enabled: true, ZAPAutomationFramework: true, ZAPSpiderTraditional: true, ZAPSpiderAjax: true},
 		{StepType: "nucleiTemplates", Enabled: true, TemplatePaths: []string{"templates/example-banner.yaml"}},
 	}
-	return &cfg, nil
+	return cfg
 }
 
 func promptLine(in *bufio.Reader, prompt string, required bool) (string, error) {
