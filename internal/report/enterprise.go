@@ -24,21 +24,20 @@ func RenderEnterpriseMarkdown(d Data) []byte {
 	b.WriteString("# Отчёт о проведении тестирования безопасности программного продукта\n\n")
 	b.WriteString("## Общие сведения\n\n")
 	b.WriteString("| Параметр | Значение |\n| --- | --- |\n")
+	deliveryID := strings.TrimSpace(d.JobName)
+	if deliveryID == "" {
+		deliveryID = "—"
+	}
+	methods := "DAST (AppSec-DAST): Katana; OWASP ZAP Baseline; Wapiti; Nuclei"
 	fmt.Fprintf(&b, "| Наименование ПО | %s |\n", mdCell(product))
-	fmt.Fprintf(&b, "| Версия ПО / ветка | %s |\n", mdCell(d.Preset))
-	fmt.Fprintf(&b, "| Идентификатор сканирования | %s |\n", mdCell(d.JobName))
+	fmt.Fprintf(&b, "| Версия ПО | %s |\n", mdCell(d.Preset))
+	fmt.Fprintf(&b, "| Идентификатор поставки | %s |\n", mdCell(deliveryID))
 	fmt.Fprintf(&b, "| Дата формирования отчёта | %s |\n", mdCell(reportDate))
 	fmt.Fprintf(&b, "| Целевой URL | %s |\n", mdCell(d.BaseURL))
 	fmt.Fprintf(&b, "| Период тестирования | %s — %s |\n",
 		mdCell(d.Started.UTC().Format("02.01.2006 15:04")),
 		mdCell(d.Finished.UTC().Format("02.01.2006 15:04")))
-
-	b.WriteString("\n## Методы тестирования\n\n")
-	b.WriteString("Динамический анализ безопасности приложения (**DAST**, Black-box), выполненный платформой **AppSec-DAST**:\n\n")
-	b.WriteString("- **Katana** — обход и сбор URL веб-приложения;\n")
-	b.WriteString("- **OWASP ZAP Baseline** — автоматизированное сканирование веб-уязвимостей;\n")
-	b.WriteString("- **Wapiti** — поиск уязвимостей на обнаруженных эндпоинтах;\n")
-	b.WriteString("- **Nuclei** — проверка по шаблонам известных уязвимостей.\n")
+	fmt.Fprintf(&b, "| Методы тестирования | %s |\n", mdCell(methods))
 
 	b.WriteString("\n## Цель тестирования\n\n")
 	b.WriteString("Целью тестирования является выявление уязвимостей и ошибок конфигурации ")
@@ -48,12 +47,10 @@ func RenderEnterpriseMarkdown(d Data) []byte {
 	b.WriteString("\n## Состав и границы тестирования\n\n")
 	b.WriteString("**Тестируемый компонент:** веб-приложение ")
 	fmt.Fprintf(&b, "`%s`", d.BaseURL)
-	b.WriteString(".\n\n")
+	b.WriteString(" и обнаруженные в ходе сканирования эндпоинты.\n\n")
 	b.WriteString("**Исключённые из тестирования части:** исходный код приложения (SAST), ")
 	b.WriteString("зависимости сборки (SCA), инфраструктура вне области сканирования и сторонние ")
-	b.WriteString("сервисы, не доступные с точки зрения целевого URL.\n\n")
-	b.WriteString("**Окружение тестирования:** динамический анализ (DAST) с аутентификацией ")
-	b.WriteString("при наличии учётных данных; инструменты Katana, ZAP, Wapiti, Nuclei.\n")
+	b.WriteString("сервисы, не доступные с точки зрения целевого URL.\n")
 
 	b.WriteString("\n## Результаты тестирования\n\n")
 	b.WriteString("### Выявленные уязвимости и ошибки конфигурации\n\n")

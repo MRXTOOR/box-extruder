@@ -23,7 +23,15 @@ func WriteEnterpriseDocx(d Data, path string) error {
 		reportDate = time.Now().UTC().Format("02.01.2006")
 	}
 	period := d.Started.UTC().Format("02.01.2006 15:04") + " — " + d.Finished.UTC().Format("02.01.2006 15:04")
-	methods := "DAST (AppSec-DAST): Katana, OWASP ZAP Baseline, Wapiti, Nuclei"
+	deliveryID := strings.TrimSpace(d.JobName)
+	if deliveryID == "" {
+		deliveryID = "—"
+	}
+	methods := "Динамический анализ безопасности приложения (DAST, Black-box), платформа AppSec-DAST:\n" +
+		"Katana — обход и сбор URL веб-приложения;\n" +
+		"OWASP ZAP Baseline — автоматизированное сканирование веб-уязвимостей;\n" +
+		"Wapiti — поиск уязвимостей на обнаруженных эндпоинтах;\n" +
+		"Nuclei — проверка по шаблонам известных уязвимостей."
 
 	var body bytes.Buffer
 	corpTitle(&body)
@@ -31,7 +39,7 @@ func WriteEnterpriseDocx(d Data, path string) error {
 	corpInfoTable(&body, [][2]string{
 		{"Наименование ПО", product},
 		{"Версия ПО", d.Preset},
-		{"Идентификатор сканирования", d.JobName},
+		{"Идентификатор поставки", deliveryID},
 		{"Дата формирования отчета", reportDate},
 		{"Целевой URL", d.BaseURL},
 		{"Период тестирования", period},
@@ -44,13 +52,9 @@ func WriteEnterpriseDocx(d Data, path string) error {
 		"и подтверждение соответствия заявленному уровню защищённости.")
 
 	corpSection(&body, 1, "Состав и границы тестирования")
-	corpBody(&body, "Тестируемый компонент: веб-приложение "+d.BaseURL+".")
+	corpBody(&body, "Тестируемый компонент: веб-приложение "+d.BaseURL+" и обнаруженные в ходе сканирования эндпоинты.")
 	corpBody(&body, "Исключённые из тестирования части: исходный код приложения (SAST), зависимости сборки (SCA), "+
-		"инфраструктура вне области сканирования и сторонние сервисы вне целевого URL.")
-
-	corpSection(&body, 1, "Окружение тестирования")
-	corpBody(&body, "Динамический анализ безопасности веб-приложения (Black-box), платформа AppSec-DAST; "+
-		"инструменты Katana, OWASP ZAP, Wapiti, Nuclei.")
+		"инфраструктура вне области сканирования и сторонние сервисы, не доступные с точки зрения целевого URL.")
 
 	corpSection(&body, 1, "Результаты тестирования")
 	corpSection(&body, 2, "Выявленные уязвимости и ошибки конфигурации")
@@ -91,6 +95,7 @@ func WriteEnterpriseDocx(d Data, path string) error {
 	var doc bytes.Buffer
 	doc.WriteString(templateDocOpen)
 	doc.Write(body.Bytes())
+	doc.WriteString(templateSectPr)
 	doc.WriteString(templateDocClose)
 
 	out := doc.Bytes()

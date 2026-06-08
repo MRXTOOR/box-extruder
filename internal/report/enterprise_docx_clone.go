@@ -9,9 +9,15 @@ import (
 	"sync"
 )
 
+// docxZipEntry normalizes ZIP member paths (Windows builds may use backslashes).
+func docxZipEntry(name string) string {
+	return strings.ReplaceAll(name, "\\", "/")
+}
+
 var (
 	templateShellOnce sync.Once
 	templateDocOpen   string // <?xml … <w:body>
+	templateSectPr    string // <w:sectPr>…</w:sectPr> from template body
 	templateDocClose  string // </w:body> … </w:document>
 )
 
@@ -22,7 +28,7 @@ func loadTemplateDocumentShell() {
 			return
 		}
 		for _, f := range zr.File {
-			if f.Name != "word/document.xml" {
+			if docxZipEntry(f.Name) != "word/document.xml" {
 				continue
 			}
 			rc, err := f.Open()
@@ -42,6 +48,11 @@ func loadTemplateDocumentShell() {
 			}
 			templateDocOpen = s[:bodyStart+len("<w:body>")]
 			templateDocClose = s[bodyEnd:]
+			if sectStart := strings.LastIndex(s[:bodyEnd], "<w:sectPr"); sectStart >= 0 {
+				if sectEnd := strings.Index(s[sectStart:bodyEnd], "</w:sectPr>"); sectEnd >= 0 {
+					templateSectPr = s[sectStart : sectStart+sectEnd+len("</w:sectPr>")]
+				}
+			}
 		}
 	})
 }
@@ -63,7 +74,7 @@ func cloneDocxWithDocument(documentXML []byte, outPath string) error {
 	defer zw.Close()
 
 	for _, zf := range zr.File {
-		name := zf.Name
+		name := docxZipEntry(zf.Name)
 		var data []byte
 		if name == "word/document.xml" {
 			data = documentXML
@@ -79,6 +90,7 @@ func cloneDocxWithDocument(documentXML []byte, outPath string) error {
 			}
 		}
 		hdr := zf.FileHeader
+		hdr.Name = name
 		w, err := zw.CreateHeader(&hdr)
 		if err != nil {
 			return err

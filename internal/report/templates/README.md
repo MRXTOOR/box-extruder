@@ -9,3 +9,9 @@
 Markdown (`report.md`) не публикуется.
 
 Заменить шаблон: положите свой `.docx` с тем же именем файла и пересоберите worker.
+
+Если файла нет (ошибка `go:embed templates/enterprise-reference.docx: no matching files`):
+
+```bash
+go run internal/report/tools/gen_enterprise_template/main.go
+```

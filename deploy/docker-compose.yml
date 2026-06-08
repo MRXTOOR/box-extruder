@@ -31,6 +31,7 @@ services:
 
   dast-server:
     image: ${DAST_SERVER_IMAGE:-deploy-dast-server}:${VERSION:-latest}
+    pull_policy: build
     build:
       context: ..
       dockerfile: Dockerfile.server
@@ -67,6 +68,7 @@ services:
 
   dast-worker:
     image: ${DAST_WORKER_IMAGE:-deploy-dast-worker}:${VERSION:-latest}
+    pull_policy: build
     build:
       context: ..
       dockerfile: Dockerfile.worker
@@ -107,6 +109,7 @@ services:
 
   nginx:
     image: ${NGINX_IMAGE:-deploy-nginx}:${VERSION:-latest}
+    pull_policy: build
     build:
       context: ../web/react
       dockerfile: Dockerfile

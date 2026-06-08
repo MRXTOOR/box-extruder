@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Отчёт о тестировании безопасности (DAST)</title>
+<style>
+  body { font-family: Arial, "Segoe UI", sans-serif; font-size: 11pt; line-height: 1.45; color: #1a1a2e; margin: 2cm; }
+  h1 { text-align: center; font-size: 18pt; text-transform: uppercase; margin: 0 0 1.5rem; color: #1f3763; }
+  h2 { font-size: 13pt; color: #2f5496; border-bottom: 2px solid #2f5496; padding-bottom: 0.25rem; margin: 1.5rem 0 0.75rem; }
+  h3 { font-size: 12pt; color: #1f3763; margin: 1rem 0 0.5rem; }
+  p { margin: 0.5rem 0; text-align: justify; }
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1rem; font-size: 10pt; }
+  th, td { border: 1px solid #444; padding: 6px 8px; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; text-align: left; }
+  td.num { text-align: center; width: 3em; }
+  ul { margin: 0.5rem 0 1rem 1.25rem; }
+  .meta-label { width: 38%; font-weight: 600; background: #f8f9fa; }
+  .empty { text-align: center; padding: 1rem; color: #28a745; }
+</style>
+</head>
+<body>
+<h1>Отчёт о проведении тестирования безопасности программного продукта</h1><h2>Общие сведения</h2><table><tr><th class="meta-label">Параметр</th><th>Значение</th></tr><tr><td class="meta-label">Наименование ПО</td><td>kubikvpn.com</td></tr><tr><td class="meta-label">Версия ПО</td><td>Fast</td></tr><tr><td class="meta-label">Идентификатор поставки</td><td>10bdb66f-917b-4f9f-9273-77f30e055cd4</td></tr><tr><td class="meta-label">Дата формирования отчёта</td><td>04.06.2026</td></tr><tr><td class="meta-label">Целевой URL</td><td>https://kubikvpn.com</td></tr><tr><td class="meta-label">Период тестирования</td><td>04.06.2026 03:42 — 04.06.2026 06:26</td></tr><tr><td class="meta-label">Методы тестирования</td><td>Динамический анализ безопасности приложения (DAST, Black-box), платформа AppSec-DAST:<br>Katana — обход и сбор URL веб-приложения;<br>OWASP ZAP Baseline — автоматизированное сканирование веб-уязвимостей;<br>Wapiti — поиск уязвимостей на обнаруженных эндпоинтах;<br>Nuclei — проверка по шаблонам известных уязвимостей.</td></tr></table><h2>Цель тестирования</h2>
+<p>Выявление уязвимостей и ошибок конфигурации веб-приложения в ходе эксплуатации (runtime)
+в соответствии с требованиями безопасности и подтверждение заявленного уровня защищённости.</p><h2>Состав и границы тестирования</h2>
+<p><strong>Тестируемый компонент:</strong> <code>https://kubikvpn.com</code> и обнаруженные в ходе сканирования эндпоинты.</p>
+<p><strong>Исключённые из тестирования части:</strong> исходный код приложения (SAST), зависимости сборки (SCA),
+инфраструктура вне области сканирования и сторонние сервисы, не доступные с точки зрения целевого URL.</p><h2>Результаты тестирования</h2><h3>Выявленные уязвимости и ошибки конфигурации</h3><table><thead><tr>
+<th class="num">№</th><th>Идентификатор</th><th>Описание</th><th>Тип анализа</th><th>Уровень критичности</th><th>Статус</th>
+</tr></thead><tbody><tr><td class="num">1</td><td>10038</td><td>Content Security Policy (CSP) Header Not Set. Отсутствует заголовок Content-Security-Policy. Это может позволить атаки XSS и загрузку вредоносного контента.</td><td>ZAP</td><td>Средний</td><td>Подтверждён</td></tr><tr><td class="num">2</td><td>10020</td><td>X-Frame-Options Header Not Set. Отсутствует заголовок X-Frame-Options или CSP frame-ancestors. Возможна атака clickjacking.</td><td>ZAP</td><td>Средний</td><td>Подтверждён</td></tr><tr><td class="num">3</td><td>10021</td><td>X-Content-Type-Options Header Missing. Отсутствует заголовок X-Content-Type-Options: nosniff.</td><td>ZAP</td><td>Низкий</td><td>Подтверждён</td></tr><tr><td class="num">4</td><td>10035</td><td>Strict-Transport-Security Header Not Set. HSTS не настроен. Возможны атаки downgrade HTTPS.</td><td>ZAP</td><td>Средний</td><td>Подтверждён</td></tr><tr><td class="num">5</td><td>http-missing-security-headers</td><td>Missing Security Headers. Обнаружены ответы без рекомендуемых заголовков безопасности.</td><td>NUCLEI</td><td>Низкий</td><td>Подтверждён</td></tr><tr><td class="num">6</td><td>exposed-panels</td><td>Exposed Admin Panel. Обнаружен потенциально доступный административный интерфейс.</td><td>NUCLEI</td><td>Высокий</td><td>Подтверждён</td></tr><tr><td class="num">7</td><td>cookie-without-secure</td><td>Cookie Without Secure Flag. Cookie передаётся без флага Secure.</td><td>ZAP</td><td>Средний</td><td>Подтверждён</td></tr><tr><td class="num">8</td><td>cookie-without-httponly</td><td>Cookie Without HttpOnly Flag. Cookie доступен из JavaScript, что повышает риск XSS.</td><td>ZAP</td><td>Средний</td><td>Подтверждён</td></tr><tr><td class="num">9</td><td>robots-txt</td><td>robots.txt Information Disclosure. Файл robots.txt раскрывает структуру приложения.</td><td>NUCLEI</td><td>Информационный</td><td>Подтверждён</td></tr><tr><td class="num">10</td><td>cors-misconfig</td><td>CORS Misconfiguration. Небезопасная конфигурация CORS: Access-Control-Allow-Origin: *.</td><td>WAPITI</td><td>Высокий</td><td>Подтверждён</td></tr><tr><td class="num">11</td><td>10027</td><td>Information Disclosure — Suspicious Comments. В HTML/JS обнаружены комментарии с потенциально чувствительной информацией.</td><td>ZAP</td><td>Информационный</td><td>Не подтверждён</td></tr><tr><td class="num">12</td><td>tls-weak-cipher</td><td>Weak TLS Cipher Suite. Сервер поддерживает устаревшие наборы шифров TLS.</td><td>NUCLEI</td><td>Низкий</td><td>Подтверждён</td></tr></tbody></table><h3>Сводка по критичности</h3><table><thead><tr><th>Уровень</th><th>Количество</th></tr></thead><tbody><tr><td>Высокий</td><td>2</td></tr><tr><td>Средний</td><td>5</td></tr><tr><td>Низкий</td><td>3</td></tr><tr><td>Информационный</td><td>2</td></tr></tbody></table></body></html>

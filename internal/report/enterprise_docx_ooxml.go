@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // OOXML fragments match internal/report/templates/enterprise-reference.docx (SAST/SCA/CA).
@@ -145,14 +146,31 @@ func corpDataCell(buf *bytes.Buffer, text, widthDxa, jc string, italic bool) {
 	if italic {
 		buf.WriteString(`<w:i/>`)
 	}
-	buf.WriteString(`</w:rPr></w:pPr><w:r><w:rPr>`)
-	buf.WriteString(corpRunRPr)
-	if italic {
-		buf.WriteString(`<w:i/>`)
+	buf.WriteString(`</w:rPr></w:pPr>`)
+	corpWriteRuns(buf, text, italic)
+	buf.WriteString(`</w:p></w:tc>`)
+}
+
+func corpWriteRuns(buf *bytes.Buffer, text string, italic bool) {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if i > 0 {
+			buf.WriteString(`<w:r><w:rPr>`)
+			buf.WriteString(corpRunRPr)
+			if italic {
+				buf.WriteString(`<w:i/>`)
+			}
+			buf.WriteString(`</w:rPr><w:br/></w:r>`)
+		}
+		buf.WriteString(`<w:r><w:rPr>`)
+		buf.WriteString(corpRunRPr)
+		if italic {
+			buf.WriteString(`<w:i/>`)
+		}
+		buf.WriteString(`</w:rPr><w:t xml:space="preserve">`)
+		buf.WriteString(escapeDocxText(line))
+		buf.WriteString(`</w:t></w:r>`)
 	}
-	buf.WriteString(`</w:rPr><w:t xml:space="preserve">`)
-	buf.WriteString(escapeDocxText(text))
-	buf.WriteString(`</w:t></w:r></w:p></w:tc>`)
 }
 
 var corpFindingColWidths = []string{"701", "1985", "4677", "1134", "1701", "1134"}

@@ -43,25 +43,27 @@ func WriteEnterpriseHTMLReport(d Data, htmlPath string) error {
 `)
 	b.WriteString(`<h1>Отчёт о проведении тестирования безопасности программного продукта</h1>`)
 
+	deliveryID := strings.TrimSpace(d.JobName)
+	if deliveryID == "" {
+		deliveryID = "—"
+	}
+	methods := "Динамический анализ безопасности приложения (DAST, Black-box), платформа AppSec-DAST:\n" +
+		"Katana — обход и сбор URL веб-приложения;\n" +
+		"OWASP ZAP Baseline — автоматизированное сканирование веб-уязвимостей;\n" +
+		"Wapiti — поиск уязвимостей на обнаруженных эндпоинтах;\n" +
+		"Nuclei — проверка по шаблонам известных уязвимостей."
+
 	b.WriteString(`<h2>Общие сведения</h2><table>`)
 	writeMetaRow(&b, "Параметр", "Значение", true)
 	writeMetaRow(&b, "Наименование ПО", product, false)
-	writeMetaRow(&b, "Версия ПО / ветка", d.Preset, false)
-	writeMetaRow(&b, "Идентификатор сканирования", d.JobName, false)
+	writeMetaRow(&b, "Версия ПО", d.Preset, false)
+	writeMetaRow(&b, "Идентификатор поставки", deliveryID, false)
 	writeMetaRow(&b, "Дата формирования отчёта", reportDate, false)
 	writeMetaRow(&b, "Целевой URL", d.BaseURL, false)
 	writeMetaRow(&b, "Период тестирования",
 		d.Started.UTC().Format("02.01.2006 15:04")+" — "+d.Finished.UTC().Format("02.01.2006 15:04"), false)
+	writeMetaRow(&b, "Методы тестирования", methods, false)
 	b.WriteString(`</table>`)
-
-	b.WriteString(`<h2>Методы тестирования</h2>
-<p>Динамический анализ безопасности приложения (<strong>DAST</strong>, Black-box), платформа <strong>AppSec-DAST</strong>:</p>
-<ul>
-<li><strong>Katana</strong> — обход и сбор URL;</li>
-<li><strong>OWASP ZAP Baseline</strong> — сканирование веб-уязвимостей;</li>
-<li><strong>Wapiti</strong> — анализ обнаруженных эндпоинтов;</li>
-<li><strong>Nuclei</strong> — проверка по шаблонам уязвимостей.</li>
-</ul>`)
 
 	b.WriteString(`<h2>Цель тестирования</h2>
 <p>Выявление уязвимостей и ошибок конфигурации веб-приложения в ходе эксплуатации (runtime)
@@ -69,11 +71,10 @@ func WriteEnterpriseHTMLReport(d Data, htmlPath string) error {
 
 	b.WriteString(`<h2>Состав и границы тестирования</h2>
 <p><strong>Тестируемый компонент:</strong> `)
-	b.WriteString(`<code>` + escapeHTML(d.BaseURL) + `</code>.`)
+	b.WriteString(`<code>` + escapeHTML(d.BaseURL) + `</code> и обнаруженные в ходе сканирования эндпоинты.`)
 	b.WriteString(`</p>
-<p><strong>Исключённые из тестирования части:</strong> исходный код (SAST), зависимости сборки (SCA),
-инфраструктура вне scope, недоступные сторонние сервисы.</p>
-<p><strong>Окружение:</strong> DAST (Katana, ZAP, Wapiti, Nuclei).</p>`)
+<p><strong>Исключённые из тестирования части:</strong> исходный код приложения (SAST), зависимости сборки (SCA),
+инфраструктура вне области сканирования и сторонние сервисы, не доступные с точки зрения целевого URL.</p>`)
 
 	b.WriteString(`<h2>Результаты тестирования</h2><h3>Выявленные уязвимости и ошибки конфигурации</h3>`)
 	if len(d.Findings) == 0 {
@@ -125,6 +126,11 @@ func writeMetaRow(b *strings.Builder, label, value string, header bool) {
 	b.WriteString(`<tr><td class="meta-label">`)
 	b.WriteString(escapeHTML(label))
 	b.WriteString(`</td><td>`)
-	b.WriteString(escapeHTML(value))
+	b.WriteString(escapeHTMLMultiline(value))
 	b.WriteString(`</td></tr>`)
+}
+
+func escapeHTMLMultiline(s string) string {
+	s = escapeHTML(s)
+	return strings.ReplaceAll(s, "\n", "<br>")
 }

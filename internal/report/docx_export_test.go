@@ -41,7 +41,7 @@ func TestWriteDocxFromData_validZip(t *testing.T) {
 	defer zr.Close()
 	var hasDoc bool
 	for _, f := range zr.File {
-		if f.Name == "word/document.xml" {
+		if docxZipEntry(f.Name) == "word/document.xml" {
 			hasDoc = true
 		}
 	}

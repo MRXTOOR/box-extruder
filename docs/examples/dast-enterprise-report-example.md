@@ -1,45 +1,16 @@
-# Отчёт о проведении тестирования безопасности программного продукта
+# Пример корпоративного DAST-отчёта
 
-> Пример содержимого, которое платформа AppSec-DAST подставляет в Word-отчёт
-> (`report.docx`) по шаблону `internal/report/templates/enterprise-reference.docx`
-> (оформление как у отчёта SAST/SCA).
+Готовые файлы (сгенерированы из шаблона `internal/report/templates/enterprise-reference.docx`):
 
-## Общие сведения
-
-| Параметр | Значение |
+| Файл | Описание |
 | --- | --- |
-| Наименование ПО | staging.myapp.example.com |
-| Версия ПО / ветка | custom |
-| Идентификатор сканирования | web-scan-a1b2c3 |
-| Дата формирования отчёта | 04.06.2026 |
-| Целевой URL | https://staging.myapp.example.com |
-| Период тестирования | 04.06.2026 10:00 — 04.06.2026 11:30 |
+| [dast-enterprise-report-example.docx](./dast-enterprise-report-example.docx) | Word-отчёт (как SAST/SCA) |
+| [dast-enterprise-report-example.html](./dast-enterprise-report-example.html) | HTML-версия для просмотра в браузере |
 
-## Методы тестирования
+Пересобрать пример:
 
-Динамический анализ (**DAST**): Katana, OWASP ZAP Baseline, Wapiti, Nuclei (AppSec-DAST).
+```bash
+go run internal/report/tools/gen_example_report/main.go
+```
 
-## Цель тестирования
-
-Выявление уязвимостей и ошибок конфигурации веб-приложения в runtime.
-
-## Состав и границы тестирования
-
-Тестируемый компонент: целевой URL и обнаруженные эндпоинты.  
-Исключено: SAST, SCA, инфраструктура вне scope.
-
-## Результаты тестирования
-
-### Выявленные уязвимости и ошибки конфигурации
-
-| № | Идентификатор | Описание | Тип анализа | Уровень критичности | Статус |
-| ---: | --- | --- | --- | --- | --- |
-| 1 | 10038 | Content Security Policy (CSP) Header Not Set | ZAP | Средний | Открыт |
-| 2 | cve-2024-12345 | SQL injection in login form | Nuclei | Высокий | Открыт |
-
-### Сводка по критичности
-
-| Уровень | Количество |
-| --- | ---: |
-| Высокий | 1 |
-| Средний | 1 |
+Тестовые данные: сканирование `https://kubikvpn.com`, preset **Fast**, 12 типовых находок (ZAP, Nuclei, Wapiti).

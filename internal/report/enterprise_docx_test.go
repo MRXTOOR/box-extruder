@@ -3,6 +3,7 @@ package report
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/xml"
 	"io"
 	"path/filepath"
 	"strings"
@@ -38,21 +39,35 @@ func TestWriteEnterpriseDocx_hasTables_noEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	xml := readDocxDocumentXML(t, path)
-	if !strings.Contains(xml, "<w:tbl>") {
+	docXML := readDocxDocumentXML(t, path)
+	if !strings.Contains(docXML, "<w:tbl>") {
 		t.Fatal("expected Word table elements (w:tbl) in document.xml")
 	}
-	if !strings.Contains(xml, `w:fill="F2F2F2"`) {
+	if !strings.Contains(docXML, `w:fill="F2F2F2"`) {
 		t.Fatal("expected corporate table header shading F2F2F2")
 	}
-	if strings.Contains(xml, "Scanned Endpoints") || strings.Contains(xml, "просканировано") {
+	if strings.Contains(docXML, "Scanned Endpoints") || strings.Contains(docXML, "просканировано") {
 		t.Fatal("report must not list scanned endpoints")
 	}
-	if !strings.Contains(xml, "Отчёт") || !strings.Contains(xml, "о проведении тестирования безопасности") {
+	if !strings.Contains(docXML, "Отчёт") || !strings.Contains(docXML, "о проведении тестирования безопасности") {
 		t.Fatal("expected enterprise Russian title")
 	}
-	if strings.Contains(xml, "DAST Report") {
+	if strings.Contains(docXML, "DAST Report") {
 		t.Fatal("legacy DAST Report title must not appear")
+	}
+	if !strings.Contains(docXML, "<w:sectPr") {
+		t.Fatal("document must include w:sectPr section properties")
+	}
+	if strings.Contains(docXML, "</w:rPr><w:r><w:rPr>") {
+		t.Fatal("malformed nested w:r in table cells")
+	}
+	dec := xml.NewDecoder(strings.NewReader(docXML))
+	for {
+		if _, err := dec.Token(); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatalf("document.xml is not well-formed: %v", err)
+		}
 	}
 }
 
@@ -64,7 +79,7 @@ func readDocxDocumentXML(t *testing.T, path string) string {
 	}
 	defer zr.Close()
 	for _, f := range zr.File {
-		if f.Name != "word/document.xml" {
+		if docxZipEntry(f.Name) != "word/document.xml" {
 			continue
 		}
 		rc, err := f.Open()
