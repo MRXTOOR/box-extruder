@@ -1,6 +1,16 @@
 import { FC, FormEvent, useState } from 'react'
 import styles from './ScanForm.module.css'
 
+const DEFAULT_KATANA_DEPTH = 10
+
+function parseKatanaDepth(raw: string): number {
+  const n = parseInt(raw.trim(), 10)
+  if (!Number.isFinite(n) || n < 1) {
+    return DEFAULT_KATANA_DEPTH
+  }
+  return Math.min(n, 100)
+}
+
 export interface ScanFormProps {
   onSubmit: (targetUrl: string, config?: ScanConfig) => Promise<void>
 }
@@ -24,7 +34,7 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
   const [password, setPassword] = useState('')
   const [authUrl, setAuthUrl] = useState('')
   const [verifyUrl, setVerifyUrl] = useState('')
-  const [katanaDepth, setKatanaDepth] = useState('')
+  const [katanaDepth, setKatanaDepth] = useState(String(DEFAULT_KATANA_DEPTH))
   const [katanaMaxUrls, setKatanaMaxUrls] = useState('')
   const [zapSpiderMinutes, setZapSpiderMinutes] = useState('')
   const [zapPassiveSecs, setZapPassiveSecs] = useState('')
@@ -47,7 +57,7 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
         password: password || undefined,
         authUrl: authUrl || undefined,
         verifyUrl: verifyUrl || undefined,
-        katanaDepth: katanaDepth ? parseInt(katanaDepth) : undefined,
+        katanaDepth: parseKatanaDepth(katanaDepth),
         katanaMaxUrls: katanaMaxUrls ? parseInt(katanaMaxUrls) : undefined,
         zapSpiderMinutes: zapSpiderMinutes ? parseInt(zapSpiderMinutes) : undefined,
         zapPassiveSecs: zapPassiveSecs ? parseInt(zapPassiveSecs) : undefined,
@@ -59,7 +69,7 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
       setPassword('')
       setAuthUrl('')
       setVerifyUrl('')
-      setKatanaDepth('')
+      setKatanaDepth(String(DEFAULT_KATANA_DEPTH))
       setKatanaMaxUrls('')
       setZapSpiderMinutes('')
       setZapPassiveSecs('')
@@ -151,14 +161,15 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
         <div className={styles.advSettingsBody}>
           <div className={styles.row2}>
             <div className={styles.field}>
-              <label className={styles.label} htmlFor="katanaDepth">Глубина обхода (Katana/ZAP)</label>
+              <label className={styles.label} htmlFor="katanaDepth">
+                Глубина обхода Katana <span className={styles.labelOptional}>— флаг -d; ZAP задаётся временем Spider ниже</span>
+              </label>
               <input
                 id="katanaDepth"
                 type="number"
                 className={styles.input}
                 min="1"
                 max="100"
-                placeholder="10"
                 value={katanaDepth}
                 onChange={(e) => setKatanaDepth(e.target.value)}
                 disabled={loading}

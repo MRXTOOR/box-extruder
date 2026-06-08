@@ -10,6 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultKatanaDepth is the crawl depth (-d) for UI scans when the field is omitted.
+const DefaultKatanaDepth = 10
+
 // CreateOptions carries UI scan parameters for building scan-as-code YAML.
 type CreateOptions struct {
 	JobID     string
@@ -87,7 +90,7 @@ func applyTargetsAndScope(cfg *config.ScanAsCode, target, baseTarget string, sta
 // the effective Katana depth.
 func applyDiscoveryBudgets(cfg *config.ScanAsCode, opts CreateOptions) int {
 	// Deeper defaults for UI-driven scans (Katana uses budgets for -max-urls; step depth overrides -d).
-	cfg.Budgets.Discovery.MaxDepth = 6
+	cfg.Budgets.Discovery.MaxDepth = DefaultKatanaDepth
 	cfg.Budgets.Discovery.MaxURLs = 3000
 	cfg.Budgets.Discovery.DurationCrawlSecs = 120
 	cfg.Budgets.Discovery.PreserveQuery = true

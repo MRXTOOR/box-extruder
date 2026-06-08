@@ -197,6 +197,14 @@ func TestBuildScanYAML_KatanaStep_HeadlessAndJC(t *testing.T) {
 	}
 }
 
+func TestBuildScanYAML_KatanaStep_DefaultDepth(t *testing.T) {
+	_, doc := parsedBuildYAML(t, CreateOptions{Target: "https://sfera.example.ru/"})
+	kat := katanaStep(t, doc)
+	if kat["katanaDepth"] != DefaultKatanaDepth {
+		t.Fatalf("katanaDepth: want %d, got %v", DefaultKatanaDepth, kat["katanaDepth"])
+	}
+}
+
 func TestBuildScanYAML_KatanaStep_CustomDepth(t *testing.T) {
 	depth := 4
 	_, doc := parsedBuildYAML(t, CreateOptions{
@@ -277,8 +285,8 @@ func TestBuildScanYAML_Budgets_Defaults(t *testing.T) {
 	_, doc := parsedBuildYAML(t, CreateOptions{Target: "https://sfera.example.ru/"})
 	budgets, _ := doc["budgets"].(map[string]any)
 	disc, _ := budgets["discovery"].(map[string]any)
-	if disc["maxDepth"] != 6 {
-		t.Fatalf("maxDepth: want 6, got %v", disc["maxDepth"])
+	if disc["maxDepth"] != DefaultKatanaDepth {
+		t.Fatalf("maxDepth: want %d, got %v", DefaultKatanaDepth, disc["maxDepth"])
 	}
 	if disc["maxUrls"] != 3000 {
 		t.Fatalf("maxUrls: want 3000, got %v", disc["maxUrls"])
