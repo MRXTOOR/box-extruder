@@ -79,6 +79,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      dast-server:
+        condition: service_healthy
     environment:
       - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - DB_HOST=postgres
@@ -95,15 +97,6 @@ services:
     volumes:
       - ../work:/workspace/work
       - ../templates:/workspace/templates:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  dast-ci-runner:
-    profiles: ["ci"]
-    build:
-      context: ../jenkins
-      dockerfile: Dockerfile
-    image: ${CI_RUNNER_IMAGE:-appsec-dast/ci-runner}:${VERSION:-latest}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

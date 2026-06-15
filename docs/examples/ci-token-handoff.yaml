@@ -1,4 +1,4 @@
-# Handoff template for development teams (after AppSec admin runs dast-cli ci setup).
+# Handoff template for development teams (after AppSec admin creates a CI key in the web UI).
 # Store ci_token in Jenkins as Secret text — never commit to git.
 
 dast:

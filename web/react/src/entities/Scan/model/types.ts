@@ -5,6 +5,9 @@ export interface Scan {
   targetUrl: string
   status: ScanStatus
   configHash?: string
+  ciTokenId?: string
+  source?: string
+  metadata?: Record<string, unknown>
   createdAt: string
   updatedAt: string
   finishedAt?: string

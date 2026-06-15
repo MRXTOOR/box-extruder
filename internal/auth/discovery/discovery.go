@@ -92,6 +92,18 @@ func discoverAtLoginURL(req Request) Result {
 	userFields := []string{"email", "username", "login", "user", "identifier", "phone", "mobile"}
 	passFields := []string{"password", "pass", "pwd"}
 
+	// Most REST APIs (incl. explicit authUrl from UI) accept email+password JSON.
+	if tryDiscoverCombo(client, req, discoverCombo{
+		loginURL:    loginURL,
+		contentType: "application/json",
+		userField:   "email",
+		passField:   "password",
+		verifyURLs:  verifyURLs,
+	}, &out) {
+		out.Trace = dedupeTrace(out.Trace)
+		return out
+	}
+
 	for _, ct := range contentTypes {
 		for _, uf := range userFields {
 			for _, pf := range passFields {
@@ -212,7 +224,7 @@ func discoverVerify(client *http.Client, verifyURLs []string, authHeader, cookie
 func newHTTPClient(insecure bool) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure}
-	return &http.Client{Timeout: 30 * time.Second, Transport: tr}
+	return &http.Client{Timeout: 45 * time.Second, Transport: tr}
 }
 
 func normalizeTokenType(tt string) string {
@@ -272,7 +284,7 @@ func tryLogin(client *http.Client, a loginAttempt) (string, string, []byte, bool
 		return "", "", nil, false, []TraceStep{{Stage: "login", URL: loginURL, Method: http.MethodPost, Detail: err.Error(), Success: false}}
 	}
 	r.Header.Set("Content-Type", contentType)
-	r.Header.Set("User-Agent", "AppSec-DAST-auth-discovery/1.0")
+	r.Header.Set("User-Agent", defaultUserAgent)
 	resp, err := client.Do(r)
 	if err != nil || resp == nil {
 		msg := "request failed"
@@ -322,7 +334,7 @@ func tryVerify(client *http.Client, verifyURL, authHeader, cookieHeader string) 
 	if cookieHeader != "" {
 		req.Header.Set("Cookie", cookieHeader)
 	}
-	req.Header.Set("User-Agent", "AppSec-DAST-auth-discovery/1.0")
+	req.Header.Set("User-Agent", defaultUserAgent)
 	resp, err := client.Do(req)
 	if err != nil || resp == nil {
 		return 0, err

@@ -72,6 +72,10 @@ func main() {
 	defer pool.Close()
 	log.Println("Connected to PostgreSQL")
 
+	if err := db.ApplyMigrations(ctx, pool); err != nil {
+		log.Fatalf("DB migrations: %v", err)
+	}
+
 	if err := ensureBootstrapAdmin(ctx, pool, cfg.Bootstrap); err != nil {
 		log.Fatalf("Bootstrap admin: %v", err)
 	}
@@ -90,11 +94,14 @@ func main() {
 	mux := http.NewServeMux()
 	handler.Mount(mux)
 
+	// POST /api/v1/scans runs auth discovery against the target before enqueue;
+	// 30s WriteTimeout caused nginx 502 ("upstream prematurely closed connection").
 	srv := &http.Server{
-		Addr:         cfg.ListenAddr,
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:              cfg.ListenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      180 * time.Second,
 	}
 
 	go func() {
@@ -197,6 +204,30 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/scans/{id}/reports", h.authMiddleware(h.handleReports))
 	mux.HandleFunc("GET /api/v1/scans/{id}/endpoints", h.authMiddleware(h.handleEndpoints))
 	mux.HandleFunc("GET /api/v1/scans/{id}/discovered-urls", h.authMiddleware(h.handleDiscoveredURLs))
+	mux.HandleFunc("GET /api/v1/scans/{id}/dump", h.authMiddleware(h.handleScanDump))
+	mux.HandleFunc("GET /api/v1/scans/{id}/logs", h.authMiddleware(h.handleScanLogs))
+	mux.HandleFunc("POST /api/v1/scans/{id}/ci-metadata", h.authMiddleware(h.handleScanCIMetadata))
+
+	mux.HandleFunc("GET /api/v1/admin/ci-tokens", h.adminOnly(h.handleAdminListCITokens))
+	mux.HandleFunc("POST /api/v1/admin/ci-tokens", h.adminOnly(h.handleAdminCreateCIToken))
+	mux.HandleFunc("POST /api/v1/admin/ci-tokens/verify", h.adminOnly(h.handleAdminVerifyCIToken))
+	mux.HandleFunc("GET /api/v1/admin/ci-tokens/{id}/scans", h.adminOnly(h.handleAdminCITokenScans))
+	mux.HandleFunc("GET /api/v1/admin/ci-tokens/{id}", h.adminOnly(h.handleAdminGetCIToken))
+	mux.HandleFunc("PATCH /api/v1/admin/ci-tokens/{id}", h.adminOnly(h.handleAdminPatchCIToken))
+	mux.HandleFunc("DELETE /api/v1/admin/ci-tokens/{id}", h.adminOnly(h.handleAdminRevokeCIToken))
+
+	mux.HandleFunc("GET /api/v1/admin/users", h.adminOnly(h.handleAdminListUsers))
+	mux.HandleFunc("POST /api/v1/admin/users", h.adminOnly(h.handleAdminCreateUser))
+	mux.HandleFunc("GET /api/v1/admin/users/{id}", h.adminOnly(h.handleAdminGetUser))
+	mux.HandleFunc("PATCH /api/v1/admin/users/{id}", h.adminOnly(h.handleAdminPatchUser))
+	mux.HandleFunc("DELETE /api/v1/admin/users/{id}", h.adminOnly(h.handleAdminDeleteUser))
+
+	mux.HandleFunc("GET /api/v1/me/ci-tokens", h.authMiddleware(h.handleMeListCITokens))
+	mux.HandleFunc("POST /api/v1/me/ci-tokens", h.authMiddleware(h.handleMeCreateCIToken))
+	mux.HandleFunc("POST /api/v1/me/ci-tokens/verify", h.authMiddleware(h.handleMeVerifyCIToken))
+	mux.HandleFunc("GET /api/v1/me/ci-tokens/{id}/scans", h.authMiddleware(h.handleMeCITokenScans))
+	mux.HandleFunc("DELETE /api/v1/me/ci-tokens/{id}", h.authMiddleware(h.handleMeRevokeCIToken))
+	mux.HandleFunc("GET /api/v1/me/ci-tokens/{id}", h.authMiddleware(h.handleMeGetCIToken))
 
 	mux.HandleFunc("POST /api/v1/auth/discover", h.adminOnly(h.handleAuthDiscover))
 
@@ -215,15 +246,6 @@ type contextKey string
 
 const userContextKey contextKey = "user"
 
-// claimsFromContext returns the authenticated user's claims attached by authMiddleware.
-func claimsFromContext(ctx context.Context) (*auth.Claims, bool) {
-	c, ok := ctx.Value(userContextKey).(*auth.Claims)
-	if !ok || c == nil {
-		return nil, false
-	}
-	return c, true
-}
-
 func (h *Handler) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const bearerPrefix = "Bearer "
@@ -235,27 +257,34 @@ func (h *Handler) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		token := strings.TrimSpace(authHeader[len(bearerPrefix):])
 		claims, err := h.auth.ValidateToken(token)
 		if err != nil {
-			claims, err = h.claimsFromCIToken(r.Context(), token)
+			claims, ciID, err := h.claimsFromCIToken(r.Context(), token)
 			if err != nil {
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
+			ctx := withAuthContext(r.Context(), claims, ciID, authSourceCIToken)
+			next(w, r.WithContext(ctx))
+			return
 		}
-		ctx := context.WithValue(r.Context(), userContextKey, claims)
+		ctx := withAuthContext(r.Context(), claims, "", authSourceJWT)
 		next(w, r.WithContext(ctx))
 	}
 }
 
-func (h *Handler) claimsFromCIToken(ctx context.Context, secret string) (*auth.Claims, error) {
+func (h *Handler) claimsFromCIToken(ctx context.Context, secret string) (*auth.Claims, string, error) {
+	ciID, err := db.ParseCITokenIDFromSecret(secret)
+	if err != nil {
+		return nil, "", err
+	}
 	user, err := db.AuthenticateCIToken(ctx, h.pool, secret)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	return &auth.Claims{
 		UserID: user.ID,
 		Login:  user.Login,
 		Role:   user.Role,
-	}, nil
+	}, ciID, nil
 }
 
 func (h *Handler) adminOnly(next http.HandlerFunc) http.HandlerFunc {

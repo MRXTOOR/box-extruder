@@ -37,24 +37,66 @@ func (h *Handler) resolveScan(ctx context.Context, id string) (*db.Scan, error) 
 	return db.GetScanByJobID(ctx, h.pool, id)
 }
 
-// getScanForUser resolves scan by path id (scan UUID or jobId) and enforces owner/admin access.
+// scanAccess describes resolved scan visibility for the current user.
+type scanAccess struct {
+	scan     *db.Scan
+	claims   *auth.Claims
+	readOnly bool
+}
+
+// getScanForUser resolves scan by path id and enforces owner/admin/CI-key-owner access.
 func (h *Handler) getScanForUser(r *http.Request) (*db.Scan, *auth.Claims, error) {
+	acc, err := h.resolveScanAccess(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	return acc.scan, acc.claims, nil
+}
+
+func (h *Handler) resolveScanAccess(r *http.Request) (*scanAccess, error) {
 	c, ok := claimsFromContext(r.Context())
 	if !ok {
-		return nil, nil, errUnauthorized
+		return nil, errUnauthorized
 	}
 	jobID := extractJobID(r.URL.Path)
 	if jobID == "" {
-		return nil, nil, errInvalidScanID
+		return nil, errInvalidScanID
 	}
 	scan, err := h.resolveScan(r.Context(), jobID)
 	if err != nil {
-		return nil, nil, errScanNotFound
+		return nil, errScanNotFound
 	}
-	if scan.UserID != c.UserID && c.Role != "admin" {
+	if c.Role == "admin" {
+		return &scanAccess{scan: scan, claims: c, readOnly: false}, nil
+	}
+	if scan.UserID == c.UserID {
+		return &scanAccess{scan: scan, claims: c, readOnly: false}, nil
+	}
+	if scan.CITokenID != nil {
+		if authSourceFromContext(r.Context()) == authSourceCIToken &&
+			ciTokenIDFromContext(r.Context()) == *scan.CITokenID {
+			return &scanAccess{scan: scan, claims: c, readOnly: false}, nil
+		}
+		owner, err := db.IsCITokenOwner(r.Context(), h.pool, *scan.CITokenID, c.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if owner {
+			return &scanAccess{scan: scan, claims: c, readOnly: true}, nil
+		}
+	}
+	return nil, errForbidden
+}
+
+func (h *Handler) getScanForUserWritable(r *http.Request) (*db.Scan, *auth.Claims, error) {
+	acc, err := h.resolveScanAccess(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	if acc.readOnly {
 		return nil, nil, errForbidden
 	}
-	return scan, c, nil
+	return acc.scan, acc.claims, nil
 }
 
 func writeScanAccessError(w http.ResponseWriter, err error) {

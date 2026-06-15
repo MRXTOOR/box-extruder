@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/box-extruder/dast/internal/enterprise/auth"
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
 	"github.com/box-extruder/dast/internal/noise"
@@ -65,7 +67,28 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 	}
 	cfgHash := storage.ConfigHashSHA256(yamlBytes)
 
-	if _, err := db.CreateScan(r.Context(), h.pool, c.UserID, jobID, req.TargetURL, cfgHash); err != nil {
+	if err := storage.InitJobDirs(h.workDir, jobID); err != nil {
+		log.Printf("InitJobDirs error: %v", err)
+		http.Error(w, "failed to prepare scan workspace", http.StatusInternalServerError)
+		return
+	}
+	if err := storage.WriteConfigSnapshot(h.workDir, jobID, yamlBytes, cfgHash); err != nil {
+		log.Printf("WriteConfigSnapshot error: %v", err)
+		http.Error(w, "failed to save scan config", http.StatusInternalServerError)
+		return
+	}
+
+	scanUserID, ciTokenID, source, err := h.resolveScanCreateMeta(r.Context(), c)
+	if err != nil {
+		log.Printf("resolveScanCreateMeta error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := db.CreateScanWithMeta(r.Context(), h.pool, db.CreateScanParams{
+		UserID: scanUserID, JobID: jobID, TargetURL: req.TargetURL, ConfigHash: cfgHash,
+		CITokenID: ciTokenID, Source: source,
+	}); err != nil {
 		log.Printf("CreateScan error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -73,7 +96,7 @@ func (h *Handler) handleCreateScan(w http.ResponseWriter, r *http.Request) {
 
 	job := queue.JobMessage{
 		JobID:      jobID,
-		UserID:     c.UserID,
+		UserID:     scanUserID,
 		TargetURL:  req.TargetURL,
 		ConfigYAML: string(yamlBytes),
 		ConfigHash: cfgHash,
@@ -187,7 +210,7 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
-	scan, _, err := h.getScanForUser(r)
+	scan, _, err := h.getScanForUserWritable(r)
 	if err != nil {
 		writeScanAccessError(w, err)
 		return
@@ -258,7 +281,7 @@ func (h *Handler) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
-	scan, _, err := h.getScanForUser(r)
+	scan, _, err := h.getScanForUserWritable(r)
 	if err != nil {
 		writeScanAccessError(w, err)
 		return
@@ -283,7 +306,7 @@ func (h *Handler) handleCancelScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
-	scan, _, err := h.getScanForUser(r)
+	scan, _, err := h.getScanForUserWritable(r)
 	if err != nil {
 		writeScanAccessError(w, err)
 		return
@@ -337,4 +360,26 @@ func (h *Handler) handleRestartScan(w http.ResponseWriter, r *http.Request) {
 		"targetUrl": scan.TargetURL,
 		"status":    "QUEUED",
 	})
+}
+
+func (h *Handler) resolveScanCreateMeta(ctx context.Context, c *auth.Claims) (scanUserID string, ciTokenID *string, source string, err error) {
+	scanUserID = c.UserID
+	source = "web"
+	if authSourceFromContext(ctx) != authSourceCIToken {
+		return scanUserID, nil, source, nil
+	}
+	source = "jenkins"
+	id := ciTokenIDFromContext(ctx)
+	if id == "" {
+		return scanUserID, nil, source, nil
+	}
+	ciTokenID = &id
+	ownerID, err := db.GetCITokenOwnerUserID(ctx, h.pool, id)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if ownerID != "" {
+		scanUserID = ownerID
+	}
+	return scanUserID, ciTokenID, source, nil
 }

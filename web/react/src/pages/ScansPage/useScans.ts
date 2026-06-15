@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ScanConfig } from '../../widgets/ScanForm/ScanForm'
 import { api } from '../../shared/api/api'
 import { Scan } from '../../entities/Scan/model/types'
+import { ToastVariant } from '../../shared/ui/Toast'
 import { useJobPolling } from './useJobPolling'
 
-export type AutoDetectStatus = 'idle' | 'pending' | 'ok' | 'fail'
+export type ScanLaunchToast = {
+  variant: ToastVariant
+  message: string
+}
 
 export function useScans() {
   const [scans, setScans] = useState<Scan[]>([])
   const [cancelingIds, setCancelingIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [autoDetectStatus, setAutoDetectStatus] = useState<AutoDetectStatus>('idle')
+  const [launchToast, setLaunchToast] = useState<ScanLaunchToast | null>(null)
   const { startStatusPolling } = useJobPolling()
+
+  const dismissLaunchToast = useCallback(() => setLaunchToast(null), [])
 
   const loadScans = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true)
@@ -36,21 +42,29 @@ export function useScans() {
   }, [])
 
   const handleCreateScan = async (targetUrl: string, config?: ScanConfig) => {
-    setAutoDetectStatus('pending')
     try {
       const scan = await api.createScan({ targetUrl, ...config })
       const jobId = scan.jobId || scan.id
       if (!jobId) {
-        setAutoDetectStatus('fail')
+        setLaunchToast({
+          variant: 'error',
+          message: 'Не удалось запустить скан: сервер не вернул идентификатор задачи.',
+        })
         return
       }
-      setAutoDetectStatus('ok')
+      setLaunchToast({
+        variant: 'success',
+        message: 'Скан успешно поставлен в очередь. Прогресс — в «Истории сканов» справа.',
+      })
       loadScans({ silent: true })
       startStatusPolling(jobId, () => loadScans({ silent: true }))
     } catch (err) {
       console.error(err)
-      setAutoDetectStatus('fail')
-      alert(err instanceof Error ? err.message : String(err))
+      const detail = err instanceof Error ? err.message : String(err)
+      setLaunchToast({
+        variant: 'error',
+        message: `Не удалось запустить скан: ${detail}`,
+      })
     }
   }
 
@@ -64,7 +78,6 @@ export function useScans() {
     if (cancelingIds.has(jobId)) return
     const prev = scans.find((s) => s.jobId === jobId || s.id === jobId)?.status
     setCancelingIds((p) => new Set(p).add(jobId))
-    // Optimistic UI: show cancelled immediately without waiting for poll.
     setScans((p) => p.map((s) => (s.jobId === jobId || s.id === jobId ? { ...s, status: 'CANCELLED' as Scan['status'] } : s)))
     try {
       await api.cancelScan(jobId)
@@ -86,7 +99,8 @@ export function useScans() {
     loading,
     refreshing,
     cancelingIds,
-    autoDetectStatus,
+    launchToast,
+    dismissLaunchToast,
     loadScans,
     handleCreateScan,
     handleDeleteScan,

@@ -26,16 +26,10 @@ logs/
 !.env.example
 secrets/
 
-# Jenkins local test outputs (may contain CI tokens)
-jenkins/out-pipeline-test/*
-!jenkins/out-pipeline-test/.gitkeep
-jenkins/out-test/
-jenkins/out/
-jenkins/.tmp/
-
 # DAST runtime artifacts
 work/jobs/
 work/tmp/
+work/tmp-*.json
 work/cache/
 work/**/*.jsonl
 work/**/zap-out/

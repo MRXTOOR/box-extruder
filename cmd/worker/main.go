@@ -47,14 +47,18 @@ func main() {
 	}
 	defer pool.Close()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := db.ApplyMigrations(ctx, pool); err != nil {
+		log.Fatalf("DB migrations: %v", err)
+	}
+
 	rdb, err := queue.Connect(queue.Config{Host: redisHost, Port: redisPort, Password: redisPass})
 	if err != nil {
 		log.Fatalf("Redis connect: %v", err)
 	}
 	defer rdb.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

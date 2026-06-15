@@ -1,45 +1,4 @@
-<h2>dastScan</h2>
-<p>
-  Запускает DAST-сканирование из Jenkins: авторизация в API (CI-токен или login),
-  создание скана, ожидание, отчёты как артефакты, quality gate.
-</p>
-
-<h3>Типичный вызов (CI UUID-токен)</h3>
-<pre>
-dastScan(
-    apiUrl: 'http://dast-server:8080',
-    apiTokenCredentialId: 'dast-ci-consumer-api',
-    target: 'https://myapp.example.com',
-    login: 'user@example.com',
-    password: 'secret',
-    failOn: 'HIGH'
-)
-</pre>
-
-<h3>Fallback: логин/пароль платформы</h3>
-<pre>
-dastScan(
-    apiUrl: 'http://dast-server:8080',
-    apiCredentialsId: 'dast-api',
-    target: 'https://myapp.example.com',
-    failOn: 'HIGH'
-)
-</pre>
-
-<h3>Обязательные параметры</h3>
-<ul>
-  <li><b>apiUrl</b> — базовый URL DAST API</li>
-  <li><b>target</b> — URL сканируемого приложения</li>
-  <li><b>apiTokenCredentialId</b> или <b>apiCredentialsId</b> — авторизация в DAST API</li>
-</ul>
-
-<h3>Авторизация в цель (опционально)</h3>
-<ul>
-  <li><b>login</b> / <b>password</b> — учётка приложения</li>
-  <li><b>appAuthCredentialsId</b> — Jenkins credential вместо login/password</li>
-  <li><b>authUrl</b> / <b>verifyUrl</b> — явный endpoint (иначе автоподбор)</li>
-</ul>
-
-<h3>Возвращает</h3>
-<p>Map: <code>jobId</code>, <code>status</code>, <code>counts</code>, <code>total</code>, <code>passed</code>, <code>violations</code>.</p>
-
+<h2>dastScan</h2>
+<p>Запуск DAST через HTTP API платформы AppSec-DAST. Нужен curl на агенте.</p>
+<p>Обязательно: <b>apiUrl</b>, <b>target</b>, <b>apiTokenCredentialId</b> (CI-ключ dast_&lt;uuid&gt;).</p>
+<p>Пример и тестовые данные — <code>jenkins/README.md</code>.</p>

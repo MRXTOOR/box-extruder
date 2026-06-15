@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../shared/api/api'
 import { setToken } from '../../shared/auth/token'
+import { useUserReload } from '../../shared/auth/userContext'
 
 export function LoginPage() {
   const [login, setLogin] = useState('')
@@ -9,6 +10,7 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const reloadUser = useUserReload()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -21,6 +23,7 @@ export function LoginPage() {
         return
       }
       setToken(token)
+      await reloadUser()
       navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сети')

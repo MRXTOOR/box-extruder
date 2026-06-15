@@ -62,15 +62,18 @@ type User struct {
 }
 
 type Scan struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"userId"`
-	JobID      string     `json:"jobId"`
-	TargetURL  string     `json:"targetUrl"`
-	Status     string     `json:"status"`
-	ConfigHash string     `json:"configHash,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	ID         string         `json:"id"`
+	UserID     string         `json:"userId"`
+	JobID      string         `json:"jobId"`
+	TargetURL  string         `json:"targetUrl"`
+	Status     string         `json:"status"`
+	ConfigHash string         `json:"configHash,omitempty"`
+	CITokenID  *string        `json:"ciTokenId,omitempty"`
+	Source     string         `json:"source,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	CreatedAt  time.Time      `json:"createdAt"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
+	FinishedAt *time.Time     `json:"finishedAt,omitempty"`
 }
 
 type Finding struct {
@@ -144,60 +147,33 @@ func GetUsers(ctx context.Context, pool *pgxpool.Pool) ([]User, error) {
 }
 
 func CreateScan(ctx context.Context, pool *pgxpool.Pool, userID, jobID, targetURL, configHash string) (*Scan, error) {
-	var scan Scan
-	err := pool.QueryRow(ctx,
-		`INSERT INTO scans (user_id, job_id, target_url, config_hash) 
-		 VALUES ($1, $2, $3, $4) 
-		 RETURNING id, user_id, job_id, target_url, status, config_hash, created_at, updated_at`,
-		userID, jobID, targetURL, configHash,
-	).Scan(&scan.ID, &scan.UserID, &scan.JobID, &scan.TargetURL, &scan.Status, &scan.ConfigHash, &scan.CreatedAt, &scan.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &scan, nil
+	return CreateScanWithMeta(ctx, pool, CreateScanParams{
+		UserID: userID, JobID: jobID, TargetURL: targetURL, ConfigHash: configHash, Source: "web",
+	})
 }
 
 func GetScansByUser(ctx context.Context, pool *pgxpool.Pool, userID string) ([]Scan, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, user_id, job_id, target_url, status, config_hash, created_at, updated_at, finished_at 
-		 FROM scans WHERE user_id = $1 ORDER BY created_at DESC`,
+		`SELECT `+scanSelectCols+` FROM scans s
+		 WHERE s.user_id = $1
+		    OR s.ci_token_id IN (SELECT id FROM ci_tokens WHERE owner_user_id = $1)
+		 ORDER BY s.created_at DESC`,
 		userID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var scans []Scan
-	for rows.Next() {
-		var s Scan
-		if err := rows.Scan(&s.ID, &s.UserID, &s.JobID, &s.TargetURL, &s.Status, &s.ConfigHash, &s.CreatedAt, &s.UpdatedAt, &s.FinishedAt); err != nil {
-			return nil, err
-		}
-		scans = append(scans, s)
-	}
-	return scans, nil
+	return scanRows(rows)
 }
 
 func GetAllScans(ctx context.Context, pool *pgxpool.Pool) ([]Scan, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT id, user_id, job_id, target_url, status, config_hash, created_at, updated_at, finished_at 
-		 FROM scans ORDER BY created_at DESC`,
-	)
+	rows, err := pool.Query(ctx, `SELECT `+scanSelectCols+` FROM scans ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var scans []Scan
-	for rows.Next() {
-		var s Scan
-		if err := rows.Scan(&s.ID, &s.UserID, &s.JobID, &s.TargetURL, &s.Status, &s.ConfigHash, &s.CreatedAt, &s.UpdatedAt, &s.FinishedAt); err != nil {
-			return nil, err
-		}
-		scans = append(scans, s)
-	}
-	return scans, nil
+	return scanRows(rows)
 }
 
 func UpdateScanStatus(ctx context.Context, pool *pgxpool.Pool, jobID, status string) error {
@@ -209,29 +185,13 @@ func UpdateScanStatus(ctx context.Context, pool *pgxpool.Pool, jobID, status str
 }
 
 func GetScanByID(ctx context.Context, pool *pgxpool.Pool, id string) (*Scan, error) {
-	var s Scan
-	err := pool.QueryRow(ctx,
-		`SELECT id, user_id, job_id, target_url, status, config_hash, created_at, updated_at, finished_at 
-		 FROM scans WHERE id = $1`,
-		id,
-	).Scan(&s.ID, &s.UserID, &s.JobID, &s.TargetURL, &s.Status, &s.ConfigHash, &s.CreatedAt, &s.UpdatedAt, &s.FinishedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
+	row := pool.QueryRow(ctx, `SELECT `+scanSelectCols+` FROM scans WHERE id = $1`, id)
+	return scanRow(row)
 }
 
 func GetScanByJobID(ctx context.Context, pool *pgxpool.Pool, jobID string) (*Scan, error) {
-	var s Scan
-	err := pool.QueryRow(ctx,
-		`SELECT id, user_id, job_id, target_url, status, config_hash, created_at, updated_at, finished_at 
-		 FROM scans WHERE job_id = $1`,
-		jobID,
-	).Scan(&s.ID, &s.UserID, &s.JobID, &s.TargetURL, &s.Status, &s.ConfigHash, &s.CreatedAt, &s.UpdatedAt, &s.FinishedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
+	row := pool.QueryRow(ctx, `SELECT `+scanSelectCols+` FROM scans WHERE job_id = $1`, jobID)
+	return scanRow(row)
 }
 
 func DeleteScan(ctx context.Context, pool *pgxpool.Pool, jobID string) error {
@@ -286,4 +246,28 @@ func ReplaceFindingsForScan(ctx context.Context, pool *pgxpool.Pool, scanID stri
 func DeleteUserByLogin(ctx context.Context, pool *pgxpool.Pool, login string) error {
 	_, err := pool.Exec(ctx, "DELETE FROM users WHERE login = $1", login)
 	return err
+}
+
+// DeleteUserByID removes a user and clears optional references from ci_tokens.
+func DeleteUserByID(ctx context.Context, pool *pgxpool.Pool, id string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, "UPDATE ci_tokens SET owner_user_id = NULL WHERE owner_user_id = $1", id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "UPDATE ci_tokens SET created_by = NULL WHERE created_by = $1", id); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, "DELETE FROM users WHERE id = $1", id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return tx.Commit(ctx)
 }

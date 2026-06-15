@@ -21,13 +21,15 @@ var (
 
 // CIToken is a long-lived credential for CI/CD (Jenkins) without Web UI login.
 type CIToken struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"userId"`
-	Name       string     `json:"name"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
-	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
-	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	ID          string     `json:"id"`
+	UserID      string     `json:"userId"`
+	Name        string     `json:"name"`
+	CreatedBy   string     `json:"createdBy,omitempty"`
+	OwnerUserID string     `json:"ownerUserId,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
 }
 
 const ciTokenPrefix = "dast_"

@@ -10,18 +10,20 @@
 
 ### Запуск
 
-Файл стека: `deploy/docker-compose.yml`.
+Файл стека: `deploy/docker-compose.yml`. Сборка и запуск только через Docker — скрипты на хосте не нужны.
 
 ```bash
 cd deploy
-docker compose up -d
+docker compose up -d --build
 ```
 
 Из корня репозитория:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
+
+При старте `dast-server` и `dast-worker` автоматически применяют SQL-миграции из встроенного каталога `internal/enterprise/db/migrations/` (учёт в `schema_migrations`). На существующих томах Postgres дополнительных шагов не требуется.
 
 ### Доступные сервисы
 
@@ -32,45 +34,41 @@ docker compose -f deploy/docker-compose.yml up -d
 | PostgreSQL | 5432 | localhost:5432 |
 | Redis | 6379 | localhost:6379 |
 
-## Управление пользователями
+## Управление пользователями (веб-интерфейс)
 
-### Создание пользователя (локально)
+Все операции с пользователями и CI-ключами выполняются через UI — отдельный CLI не используется.
 
-```bash
-# Собрать CLI
-cd /mnt/projects/code/box-extruder
-go build -o /tmp/dast-cli ./cmd/cli
+### Первый администратор
 
-# Создать пользователя
-/tmp/dast-cli user add --login=username --password=password --role=specialist --db-host=localhost
+При первом запуске включите bootstrap в `deploy/.env`:
+
+```env
+BOOTSTRAP_ADMIN_ENABLED=true
+BOOTSTRAP_ADMIN_LOGIN=admin
+BOOTSTRAP_ADMIN_PASSWORD=change_me_strong_admin_password
+BOOTSTRAP_ADMIN_ROLE=admin
 ```
+
+После создания учётки установите `BOOTSTRAP_ADMIN_ENABLED=false` и перезапустите `dast-server`.
+
+### Веб-админка
+
+| Раздел | URL | Возможности |
+|--------|-----|-------------|
+| Пользователи | `/admin/users` | Создание, смена роли, удаление |
+| CI-ключи | `/admin/ci-keys` | Список ключей, история сканов, отзыв |
+| Карточка пользователя | `/admin/users/{id}` | Генерация CI-ключа для владельца |
+
+### Личный кабинет
+
+| Раздел | URL | Возможности |
+|--------|-----|-------------|
+| Мои CI-ключи | `/ci-keys` | Мониторинг Jenkins-сканов по выданным ключам, журнал, дамп |
 
 ### Роли
 
-- `admin` - полный доступ
-- `specialist` - ограниченный доступ
-
-### Создание пользователя в контейнере БД
-
-```bash
-# Через psql напрямую
-docker exec -i dast-postgres psql -U dast -d dast -c "
-INSERT INTO users (login, password_hash, role) 
-VALUES ('username', '\$2a\$10\$hash', 'specialist');
-"
-```
-
-### Список пользователей
-
-```bash
-/tmp/dast-cli user list --db-host=localhost
-```
-
-### Удаление пользователя
-
-```bash
-/tmp/dast-cli user delete --login=username --db-host=localhost
-```
+- `admin` — полный доступ, админ-панель
+- `specialist` — сканы через UI, просмотр своих CI-ключей в ЛК
 
 ## API
 
@@ -130,40 +128,28 @@ curl -X POST http://localhost:8080/api/v1/scans/{id}/restart \
 - Findings после скана сохраняются воркером в таблицу `findings` (БД); файлы job остаются как артефакты.
 - `POST /scans/{id}/restart` — создаёт **новую** строку в `scans` с новым `jobId` и ставит задачу с исходным YAML-конфигом.
 
-## CI/CD: интеграция с Jenkins
+## CI/CD: интеграция с Sfera / Jenkins
 
-Для запуска сканирований из пайплайнов разработчиков есть Jenkins Shared Library
-в каталоге [`jenkins/`](jenkins/README.md). Разработчик подключает библиотеку и в
-одном шаге задаёт цель, данные авторизации, обработку сертификатов и настройки
-сканирования:
+Shared Library для пайплайнов — каталог [`jenkins/`](jenkins/README.md). DevOps подключает `vars/` и `src/` в оркестраторе; пример пайплайна и тестовые данные — в [`jenkins/README.md`](jenkins/README.md).
 
 ```groovy
-@Library('dast') _
+@Library('appsec-dast') _
 
-dastScan(
-    apiUrl: 'http://dast-server:8080',
-    apiTokenCredentialId: 'dast-ci-consumer-api',  // UUID от dast-cli ci setup
+def result = dastScan(
+    apiUrl: 'https://appsec-dast.internal',
+    apiTokenCredentialId: 'dast-ci-myapp',
     target: 'https://staging.myapp.example.com',
-    login: 'user@example.com',
-    password: 'staging-secret',
-    failOn: 'HIGH'
+    failOn: 'HIGH',
+    reportFormats: ['docx'],
 )
+// result.reportDocx — путь к DOCX, артефакт .dast/dast-report-<jobId>.docx
 ```
 
-CI-токен выдаёт админ: `dast-cli ci setup --name=consumer-api --api-url=... --verify`.
-Шаблон для команд: `docs/examples/ci-token-handoff.yaml`.
+CI-токен выдаётся в **веб-интерфейсе** (`Мои CI-ключи` или `Админ → CI-ключи`). Скан попадает в историю владельца с меткой CI.
 
-Сборка образа runner: `docker build -t appsec-dast/ci-runner:latest -f jenkins/Dockerfile jenkins/`
+**Отчёт DOCX** — корпоративный шаблон (`internal/report/templates/enterprise-reference.docx`), пример — `docs/examples/dast-enterprise-report-example.md`.
 
-Тесты без Jenkins: `bash jenkins/scripts/run-tests.sh` (smoke) или `DAST_FULL_SCAN=true` для полного ожидания.
-Локальный прогон: `cd jenkins && docker compose run --rm ci-runner`
-
-**Отчёты** после скана: **DOCX**, **PDF**, **HTML** (корпоративный шаблон как SAST/SCA, без Markdown).
-Шаблон Word: `internal/report/templates/enterprise-reference.docx`, пример —
-`docs/examples/dast-enterprise-report-example.md`.
-
-Шаг создаёт скан через API (в контейнере `ci-runner`), ждёт завершения, сохраняет отчёты
-и роняет билд по quality gate. Подробности — в [`jenkins/README.md`](jenkins/README.md).
+Подробности API шага — [`jenkins/README.md`](jenkins/README.md) и `jenkins/vars/dastScan.txt`.
 
 ## Конфигурация
 

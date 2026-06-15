@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import {
+  Check,
   Download,
   List,
   Loader2,
@@ -7,7 +9,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Scan } from '../../entities/Scan/model/types'
-import { getStatusClass } from '../../shared/lib/scanStatus'
+import { getStatusClass, isCiScan } from '../../shared/lib/scanStatus'
 import { ScanStatusBadge } from '../../shared/ui/ScanStatusBadge'
 import styles from './ScansPage.module.css'
 
@@ -16,7 +18,7 @@ interface ScanHistorySidebarProps {
   loading: boolean
   refreshing: boolean
   cancelingIds: Set<string>
-  onRefresh: () => void
+  onRefresh: () => void | Promise<void>
   onView: (jobId: string) => void
   onCancel: (jobId: string, e: React.MouseEvent) => void
   onDownload: (jobId: string) => void
@@ -28,20 +30,44 @@ const RUNNING = ['QUEUED', 'RUNNING', 'WAITING_FOR_AUTH']
 
 export function ScanHistorySidebar(props: ScanHistorySidebarProps) {
   const { scans, loading, refreshing, cancelingIds } = props
+  const [refreshPhase, setRefreshPhase] = useState<'idle' | 'loading' | 'success'>('idle')
+
+  const handleRefresh = async () => {
+    if (refreshPhase === 'loading' || refreshing) return
+    setRefreshPhase('loading')
+    try {
+      await Promise.resolve(props.onRefresh())
+      setRefreshPhase('success')
+      window.setTimeout(() => setRefreshPhase('idle'), 900)
+    } catch {
+      setRefreshPhase('idle')
+    }
+  }
+
+  const refreshBusy = refreshPhase === 'loading' || refreshing
 
   return (
     <aside className={styles.sidebar}>
       <div className={styles.sidebarHeader}>
         <h3 className={styles.sidebarTitle}>История сканов</h3>
         <button
-          className={`${styles.btnRefresh} ${refreshing ? styles.btnRefreshSpinning : ''}`}
-          onClick={props.onRefresh}
+          className={`${styles.btnRefresh} ${refreshPhase === 'success' ? styles.btnRefreshSuccess : ''}`}
+          onClick={handleRefresh}
           title="Обновить список"
-          disabled={refreshing}
+          disabled={refreshBusy}
           type="button"
           aria-label="Обновить список"
         >
-          <RefreshCw className={styles.uiIcon} size={18} strokeWidth={2} aria-hidden />
+          {refreshPhase === 'success' ? (
+            <Check className={styles.uiIcon} size={18} strokeWidth={2.5} aria-hidden />
+          ) : (
+            <RefreshCw
+              className={`${styles.uiIcon} ${refreshBusy ? styles.spinIcon : ''}`}
+              size={18}
+              strokeWidth={2}
+              aria-hidden
+            />
+          )}
         </button>
       </div>
       <div className={styles.jobsList}>
@@ -69,6 +95,7 @@ export function ScanHistorySidebar(props: ScanHistorySidebarProps) {
               >
                 <div className={styles.jobCardHeader}>
                   <span className={styles.jobCardId}>#{jobId?.substring(0, 8)}</span>
+                  {isCiScan(scan) && <span className={styles.ciBadge}>CI</span>}
                   <ScanStatusBadge
                     status={scan.status}
                     className={`${styles.jobStatusBadge} ${styles[getStatusClass(scan.status)]}`}

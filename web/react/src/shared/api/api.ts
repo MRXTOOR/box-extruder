@@ -1,4 +1,11 @@
 import { Scan, Finding, ScanConfig, ScanStatusResponse } from '../../entities/Scan/model/types'
+import {
+  CiTokenCreateResponse,
+  CiTokenListItem,
+  ScanLogsResponse,
+  ScanWithFindingsCount,
+  UserRow,
+} from '../../entities/CiToken/model/types'
 import { getToken, onAuthExpired } from '../auth/token'
 
 const BASE_URL = '/api/v1'
@@ -141,5 +148,145 @@ export const api = {
       headers: headers(),
     })
     return handleJsonResponse(res)
+  },
+
+  async listCiTokens(): Promise<CiTokenListItem[]> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens`, { headers: headers() })
+    const data = await handleJsonResponse<CiTokenListItem[] | null>(res)
+    return data || []
+  },
+
+  async createCiToken(body: { name?: string; ownerUserId: string; expiresAt?: string }): Promise<CiTokenCreateResponse> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async getCiToken(id: string): Promise<CiTokenListItem> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens/${id}`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async revokeCiToken(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens/${id}`, { method: 'DELETE', headers: headers() })
+    if (!res.ok) await handleJsonResponse(res)
+  },
+
+  async patchCiTokenOwner(id: string, ownerUserId: string): Promise<CiTokenListItem> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens/${id}`, {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({ ownerUserId }),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async listCiTokenScans(tokenId: string, page = 1, limit = 20): Promise<ScanWithFindingsCount[]> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens/${tokenId}/scans?page=${page}&limit=${limit}`, { headers: headers() })
+    const data = await handleJsonResponse<ScanWithFindingsCount[] | null>(res)
+    return data || []
+  },
+
+  async listUsers(): Promise<UserRow[]> {
+    const res = await fetch(`${BASE_URL}/admin/users`, { headers: headers() })
+    const data = await handleJsonResponse<UserRow[] | null>(res)
+    return data || []
+  },
+
+  async createUser(body: { login: string; password: string; role: string }): Promise<UserRow> {
+    const res = await fetch(`${BASE_URL}/admin/users`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async getUser(id: string): Promise<{ user: UserRow; ciTokens: CiTokenListItem[] }> {
+    const res = await fetch(`${BASE_URL}/admin/users/${id}`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async patchUserRole(id: string, role: string): Promise<UserRow> {
+    const res = await fetch(`${BASE_URL}/admin/users/${id}`, {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({ role }),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async deleteUser(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/admin/users/${id}`, {
+      method: 'DELETE',
+      headers: headers(),
+    })
+    if (!res.ok) await handleJsonResponse(res)
+  },
+
+  async verifyCiToken(token: string): Promise<{ valid: boolean; login: string; role: string; name?: string; ownerLogin?: string }> {
+    const res = await fetch(`${BASE_URL}/admin/ci-tokens/verify`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ token }),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async listMyCiTokens(): Promise<CiTokenListItem[]> {
+    const res = await fetch(`${BASE_URL}/me/ci-tokens`, { headers: headers() })
+    const data = await handleJsonResponse<CiTokenListItem[] | null>(res)
+    return data || []
+  },
+
+  async createMyCiToken(body: { name?: string; expiresAt?: string }): Promise<CiTokenCreateResponse> {
+    const res = await fetch(`${BASE_URL}/me/ci-tokens`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async verifyMyCiToken(token: string): Promise<{ valid: boolean; name?: string; status?: string; jenkinsCredentialId?: string }> {
+    const res = await fetch(`${BASE_URL}/me/ci-tokens/verify`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ token }),
+    })
+    return handleJsonResponse(res)
+  },
+
+  async revokeMyCiToken(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/me/ci-tokens/${id}`, { method: 'DELETE', headers: headers() })
+    if (!res.ok) await handleJsonResponse(res)
+  },
+
+  async getMyCiToken(id: string): Promise<CiTokenListItem> {
+    const res = await fetch(`${BASE_URL}/me/ci-tokens/${id}`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async listMyCiTokenScans(tokenId: string, page = 1, limit = 20): Promise<ScanWithFindingsCount[]> {
+    const res = await fetch(`${BASE_URL}/me/ci-tokens/${tokenId}/scans?page=${page}&limit=${limit}`, { headers: headers() })
+    const data = await handleJsonResponse<ScanWithFindingsCount[] | null>(res)
+    return data || []
+  },
+
+  async getScanLogs(scanId: string, level?: string): Promise<ScanLogsResponse> {
+    const q = level ? `?level=${encodeURIComponent(level)}` : ''
+    const res = await fetch(`${BASE_URL}/scans/${scanId}/logs${q}`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async downloadScanDump(scanId: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await fetch(`${BASE_URL}/scans/${scanId}/dump`, { headers: headers() })
+    if (!res.ok) await handleJsonResponse(res)
+    const blob = await res.blob()
+    const filename = parseFilename(res.headers.get('content-disposition'), `dast-dump-${scanId.slice(0, 8)}.zip`)
+    return { blob, filename }
   },
 }

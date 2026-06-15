@@ -6,11 +6,10 @@ import {
   CirclePause,
   Clock,
   KeyRound,
-  Loader2,
   Play,
   TriangleAlert,
   XCircle,
-} from 'lucide-react'
+} from "lucide-react";
 
 export const scanStatusIconMap: Record<string, LucideIcon> = {
   SUCCEEDED: CheckCircle2,

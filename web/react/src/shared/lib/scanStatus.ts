@@ -31,6 +31,10 @@ export function isRunningStatus(status?: string): boolean {
   return !!status && RUNNING_STATUSES.includes(status)
 }
 
+export function isCiScan(scan: { source?: string; ciTokenId?: string }): boolean {
+  return scan.source === 'jenkins' || scan.source === 'ci' || !!scan.ciTokenId
+}
+
 // stepLabel maps a backend step type to a human-readable name.
 export function stepLabel(stepType: string): string {
   switch (stepType) {

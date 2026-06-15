@@ -106,7 +106,7 @@ func fetchHTML(client *http.Client, raw string) (body string, finalURL string) {
 	if err != nil {
 		return "", raw
 	}
-	req.Header.Set("User-Agent", "AppSec-DAST-auth-discovery/1.0")
+	req.Header.Set("User-Agent", defaultUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	resp, err := client.Do(req)
 	if err != nil || resp == nil {

@@ -1,14 +1,72 @@
 import { ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { clearToken } from '../../../shared/auth/token'
+import { NavLink, useLocation } from 'react-router-dom'
+import { KeyRound, Radar, Shield, Users } from 'lucide-react'
+import { useCurrentUser, useIsAdmin } from '../../../shared/auth/userContext'
+import { UserMenu } from './UserMenu'
 import './Layout.css'
 
-export function Layout({ children }: { children: ReactNode }) {
-  const navigate = useNavigate()
+type NavItem = {
+  to: string
+  label: string
+  icon: typeof Radar
+  isActive?: (pathname: string) => boolean
+}
 
-  const handleLogout = () => {
-    clearToken()
-    navigate('/login')
+const NAV_ITEMS: NavItem[] = [
+  {
+    to: '/',
+    label: 'Сканы',
+    icon: Radar,
+    isActive: (p) => p === '/' || p.startsWith('/scans/'),
+  },
+  {
+    to: '/ci-keys',
+    label: 'Мои CI-ключи',
+    icon: KeyRound,
+    isActive: (p) => p === '/ci-keys' || p.startsWith('/ci-keys/'),
+  },
+]
+
+const ADMIN_NAV_ITEMS: NavItem[] = [
+  {
+    to: '/admin/users',
+    label: 'Пользователи',
+    icon: Users,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
+  {
+    to: '/admin/ci-keys',
+    label: 'CI-ключи',
+    icon: Shield,
+    isActive: (p) => p.startsWith('/admin/ci-keys'),
+  },
+]
+
+function navTabClass(active: boolean) {
+  return `nav-tab${active ? ' nav-tab-active' : ''}`
+}
+
+export function Layout({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  const user = useCurrentUser()
+  const isAdmin = useIsAdmin()
+
+  const renderTab = (item: NavItem) => {
+    const Icon = item.icon
+    const active = item.isActive
+      ? item.isActive(location.pathname)
+      : location.pathname === item.to
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        className={navTabClass(active)}
+        aria-current={active ? 'page' : undefined}
+      >
+        <Icon className="nav-tab-icon" size={16} strokeWidth={2} aria-hidden />
+        <span>{item.label}</span>
+      </NavLink>
+    )
   }
 
   return (
@@ -29,25 +87,27 @@ export function Layout({ children }: { children: ReactNode }) {
                 </defs>
               </svg>
             </div>
-            <div>
-              <h1>DAST</h1>
-              <p className="tagline">Автодетект логина, Katana → ZAP → Wapiti → Nuclei — один запуск из браузера.</p>
-            </div>
+            <h1>DAST</h1>
           </div>
-          <div className="pipeline" title="Цепочка сканирования">
-            <span><span className="dot" aria-hidden="true"></span>Katana</span>
-            <span className="arrow" aria-hidden="true">→</span>
-            <span><span className="dot g" aria-hidden="true"></span>ZAP</span>
-            <span className="arrow" aria-hidden="true">→</span>
-            <span><span className="dot" aria-hidden="true"></span>Wapiti</span>
-            <span className="arrow" aria-hidden="true">→</span>
-            <span><span className="dot p" aria-hidden="true"></span>Nuclei</span>
+
+          <div className="top-actions">
+            <nav className="header-nav" aria-label="Основная навигация">
+              <div className="nav-tabs">
+                {NAV_ITEMS.filter((item) => !(isAdmin && item.to === '/ci-keys')).map(renderTab)}
+                {isAdmin && (
+                  <>
+                    <span className="nav-divider" aria-hidden="true" />
+                    <span className="nav-group-label">Админ</span>
+                    {ADMIN_NAV_ITEMS.map(renderTab)}
+                  </>
+                )}
+              </div>
+            </nav>
+            {user && <UserMenu user={user} />}
           </div>
-          <button className="logout-btn" onClick={handleLogout}>Выйти</button>
         </header>
         {children}
       </main>
-      <footer className="foot">Локальный оркестратор · отчёты и события в отдельных вкладках</footer>
     </div>
   )
 }

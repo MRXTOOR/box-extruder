@@ -2,6 +2,9 @@ import { FC, FormEvent, useState } from 'react'
 import styles from './ScanForm.module.css'
 
 const DEFAULT_KATANA_DEPTH = 10
+const DEFAULT_KATANA_MAX_URLS = 3000
+const DEFAULT_ZAP_SPIDER_MINUTES = 15
+const DEFAULT_ZAP_PASSIVE_SECS = 180
 
 function parseKatanaDepth(raw: string): number {
   const n = parseInt(raw.trim(), 10)
@@ -9,6 +12,14 @@ function parseKatanaDepth(raw: string): number {
     return DEFAULT_KATANA_DEPTH
   }
   return Math.min(n, 100)
+}
+
+function parsePositiveInt(raw: string, fallback: number, max = 1_000_000): number {
+  const n = parseInt(raw.trim(), 10)
+  if (!Number.isFinite(n) || n < 1) {
+    return fallback
+  }
+  return Math.min(n, max)
 }
 
 export interface ScanFormProps {
@@ -35,9 +46,9 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
   const [authUrl, setAuthUrl] = useState('')
   const [verifyUrl, setVerifyUrl] = useState('')
   const [katanaDepth, setKatanaDepth] = useState(String(DEFAULT_KATANA_DEPTH))
-  const [katanaMaxUrls, setKatanaMaxUrls] = useState('')
-  const [zapSpiderMinutes, setZapSpiderMinutes] = useState('')
-  const [zapPassiveSecs, setZapPassiveSecs] = useState('')
+  const [katanaMaxUrls, setKatanaMaxUrls] = useState(String(DEFAULT_KATANA_MAX_URLS))
+  const [zapSpiderMinutes, setZapSpiderMinutes] = useState(String(DEFAULT_ZAP_SPIDER_MINUTES))
+  const [zapPassiveSecs, setZapPassiveSecs] = useState(String(DEFAULT_ZAP_PASSIVE_SECS))
   const [startPoints, setStartPoints] = useState('')
   const [insecureSkipVerify, setInsecureSkipVerify] = useState(false)
   const [advOpen, setAdvOpen] = useState(false)
@@ -58,9 +69,9 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
         authUrl: authUrl || undefined,
         verifyUrl: verifyUrl || undefined,
         katanaDepth: parseKatanaDepth(katanaDepth),
-        katanaMaxUrls: katanaMaxUrls ? parseInt(katanaMaxUrls) : undefined,
-        zapSpiderMinutes: zapSpiderMinutes ? parseInt(zapSpiderMinutes) : undefined,
-        zapPassiveSecs: zapPassiveSecs ? parseInt(zapPassiveSecs) : undefined,
+        katanaMaxUrls: parsePositiveInt(katanaMaxUrls, DEFAULT_KATANA_MAX_URLS),
+        zapSpiderMinutes: parsePositiveInt(zapSpiderMinutes, DEFAULT_ZAP_SPIDER_MINUTES),
+        zapPassiveSecs: parsePositiveInt(zapPassiveSecs, DEFAULT_ZAP_PASSIVE_SECS),
         startPoints: startPoints || undefined,
         insecureSkipVerify,
       })
@@ -70,9 +81,9 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
       setAuthUrl('')
       setVerifyUrl('')
       setKatanaDepth(String(DEFAULT_KATANA_DEPTH))
-      setKatanaMaxUrls('')
-      setZapSpiderMinutes('')
-      setZapPassiveSecs('')
+      setKatanaMaxUrls(String(DEFAULT_KATANA_MAX_URLS))
+      setZapSpiderMinutes(String(DEFAULT_ZAP_SPIDER_MINUTES))
+      setZapPassiveSecs(String(DEFAULT_ZAP_PASSIVE_SECS))
       setStartPoints('')
       setInsecureSkipVerify(false)
     } finally {
@@ -159,11 +170,10 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
           Дополнительные настройки сканирования
         </summary>
         <div className={styles.advSettingsBody}>
-          <div className={styles.row2}>
+          <div className={styles.advGrid}>
             <div className={styles.field}>
-              <label className={styles.label} htmlFor="katanaDepth">
-                Глубина обхода Katana <span className={styles.labelOptional}>— флаг -d; ZAP задаётся временем Spider ниже</span>
-              </label>
+              <label className={styles.label} htmlFor="katanaDepth">Глубина обхода Katana</label>
+              <p className={styles.fieldHint}>Флаг -d; время ZAP Spider — поле ниже</p>
               <input
                 id="katanaDepth"
                 type="number"
@@ -182,15 +192,11 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
                 type="number"
                 className={styles.input}
                 min="1"
-                placeholder="5000"
                 value={katanaMaxUrls}
                 onChange={(e) => setKatanaMaxUrls(e.target.value)}
                 disabled={loading}
               />
             </div>
-          </div>
-
-          <div className={styles.row2}>
             <div className={styles.field}>
               <label className={styles.label} htmlFor="zapSpiderMinutes">Время Spider (минуты)</label>
               <input
@@ -198,7 +204,6 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
                 type="number"
                 className={styles.input}
                 min="1"
-                placeholder="30"
                 value={zapSpiderMinutes}
                 onChange={(e) => setZapSpiderMinutes(e.target.value)}
                 disabled={loading}
@@ -211,38 +216,37 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
                 type="number"
                 className={styles.input}
                 min="1"
-                placeholder="120"
                 value={zapPassiveSecs}
                 onChange={(e) => setZapPassiveSecs(e.target.value)}
                 disabled={loading}
               />
             </div>
-          </div>
 
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="startPoints">
-              Start Points <span className={styles.labelOptional}>— дополнительные URL для обхода (по одному на строку)</span>
+            <div className={`${styles.field} ${styles.advGridFull}`}>
+              <label className={styles.label} htmlFor="startPoints">
+                Start Points <span className={styles.labelOptional}>— по одному URL на строку</span>
+              </label>
+              <textarea
+                id="startPoints"
+                className={styles.textarea}
+                rows={3}
+                placeholder="https://example.com/about&#10;https://example.com/contact"
+                value={startPoints}
+                onChange={(e) => setStartPoints(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+
+            <label className={`${styles.checkboxLabel} ${styles.advGridFull}`}>
+              <input
+                type="checkbox"
+                checked={insecureSkipVerify}
+                onChange={(e) => setInsecureSkipVerify(e.target.checked)}
+                disabled={loading}
+              />
+              <span>Пропускать проверку TLS-сертификатов (для самоподписанных)</span>
             </label>
-            <textarea
-              id="startPoints"
-              className={styles.textarea}
-              rows={3}
-              placeholder="https://example.com/about&#10;https://example.com/contact"
-              value={startPoints}
-              onChange={(e) => setStartPoints(e.target.value)}
-              disabled={loading}
-            />
           </div>
-
-          <label className={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={insecureSkipVerify}
-              onChange={(e) => setInsecureSkipVerify(e.target.checked)}
-              disabled={loading}
-            />
-            <span>Пропускать проверку TLS-сертификатов (для самоподписанных)</span>
-          </label>
         </div>
       </details>
 
