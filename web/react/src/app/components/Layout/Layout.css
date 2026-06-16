@@ -37,34 +37,103 @@
 }
 
 .brand {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
-  gap: 14px;
+  padding: 6px 14px 6px 6px;
+  margin: -6px -14px -6px -6px;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 14px;
+  overflow: hidden;
+  transition: color 0.35s ease;
 }
 
-.logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(145deg, rgba(56, 139, 253, 0.2), rgba(163, 113, 247, 0.12));
-  border: 1px solid var(--border-glow);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 4px 20px rgba(56, 139, 253, 0.15);
+.brand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgba(56, 139, 253, 0.28) 0%,
+    rgba(88, 166, 255, 0.14) 45%,
+    rgba(163, 113, 247, 0.1) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  z-index: -1;
+  pointer-events: none;
 }
 
-.logo svg {
-  width: 22px;
-  height: 22px;
-  opacity: 0.95;
+.brand::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  border-radius: inherit;
+  background: radial-gradient(circle at 30% 50%, rgba(56, 139, 253, 0.35), transparent 62%);
+  opacity: 0;
+  z-index: -2;
+  pointer-events: none;
 }
 
-.brand h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin: 0;
-  line-height: 1.15;
+.brand:hover,
+.brand:focus-visible {
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand:hover::before,
+.brand:focus-visible::before {
+  opacity: 1;
+  animation: brand-glow-bg 2.8s ease-in-out infinite;
+}
+
+.brand:hover::after,
+.brand:focus-visible::after {
+  animation: brand-glow-halo 2.8s ease-in-out infinite;
+}
+
+.brand:hover .brand-logo-mark,
+.brand:focus-visible .brand-logo-mark {
+  border-color: rgba(56, 139, 253, 0.45);
+  box-shadow:
+    0 4px 24px rgba(56, 139, 253, 0.28),
+    0 0 28px rgba(56, 139, 253, 0.18);
+  transition:
+    border-color 0.45s ease,
+    box-shadow 0.45s ease;
+}
+
+.brand:hover .brand-logo-title,
+.brand:focus-visible .brand-logo-title {
+  text-decoration: none;
+}
+
+@keyframes brand-glow-bg {
+  0%, 100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes brand-glow-halo {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.05);
+  }
+}
+
+.brand:focus-visible {
+  outline: 2px solid rgba(56, 139, 253, 0.55);
+  outline-offset: 2px;
 }
 
 .header-nav {

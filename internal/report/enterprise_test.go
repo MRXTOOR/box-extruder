@@ -21,8 +21,9 @@ func TestRenderEnterpriseMarkdown_structure(t *testing.T) {
 			RuleID:          "CVE-2025-00001",
 			Title:           "Test issue",
 			Severity:        model.SeverityHigh,
-			LifecycleStatus: model.LifecycleDetected,
+			LifecycleStatus: model.LifecycleConfirmed,
 			Category:        "zap",
+			LocationKey:     "GET https://app.example.com/",
 		}},
 	}))
 	for _, want := range []string{
@@ -38,7 +39,9 @@ func TestRenderEnterpriseMarkdown_structure(t *testing.T) {
 		"Тип анализа",
 		"Уровень критичности",
 		"Высокий",
-		"Открыт",
+		"Подтверждён",
+		"Выводы",
+		"Рекомендации по устранению",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("markdown missing %q", want)

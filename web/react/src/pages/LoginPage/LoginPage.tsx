@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../shared/api/api'
 import { setToken } from '../../shared/auth/token'
 import { useUserReload } from '../../shared/auth/userContext'
+import { BrandLogo } from '../../shared/ui/BrandLogo'
 
 export function LoginPage() {
   const [login, setLogin] = useState('')
@@ -35,6 +36,9 @@ export function LoginPage() {
   return (
     <div className="loginPage">
       <form className="loginForm" onSubmit={handleSubmit}>
+        <Link to="/login" className="loginBrand" aria-label="AppSec DAST">
+          <BrandLogo size="sm" />
+        </Link>
         <h2>Вход в систему</h2>
         {error && <div className="error">{error}</div>}
         <input

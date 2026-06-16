@@ -29,13 +29,13 @@ services:
       timeout: 5s
       retries: 5
 
-  dast-server:
-    image: ${DAST_SERVER_IMAGE:-deploy-dast-server}:${VERSION:-latest}
+  server:
+    image: ${SERVER_IMAGE:-server}:${VERSION:-latest}
     pull_policy: build
     build:
       context: ..
       dockerfile: Dockerfile.server
-    container_name: dast-server
+    container_name: server
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,20 +66,20 @@ services:
       start_period: 15s
       retries: 3
 
-  dast-worker:
-    image: ${DAST_WORKER_IMAGE:-deploy-dast-worker}:${VERSION:-latest}
+  worker:
+    image: ${WORKER_IMAGE:-worker}:${VERSION:-latest}
     pull_policy: build
     build:
       context: ..
       dockerfile: Dockerfile.worker
-    container_name: dast-worker
+    container_name: worker
     user: "0:0"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      dast-server:
+      server:
         condition: service_healthy
     environment:
       - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -100,17 +100,17 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  nginx:
-    image: ${NGINX_IMAGE:-deploy-nginx}:${VERSION:-latest}
+  frontend:
+    image: ${FRONTEND_IMAGE:-frontend}:${VERSION:-latest}
     pull_policy: build
     build:
       context: ../web/react
       dockerfile: Dockerfile
-    container_name: dast-nginx
+    container_name: frontend
     ports:
       - "${NGINX_PORT:-80}:80"
     depends_on:
-      dast-server:
+      server:
         condition: service_healthy
 
 volumes:

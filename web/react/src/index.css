@@ -90,6 +90,14 @@ input, textarea {
   max-width: 380px;
 }
 
+.loginBrand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  text-decoration: none;
+  color: inherit;
+}
+
 .loginForm h2 {
   margin: 0 0 1.5rem;
   font-size: 1.25rem;

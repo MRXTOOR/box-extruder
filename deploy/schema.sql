@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- CI/CD API tokens (long-lived UUID secrets for Jenkins pipelines)
 CREATE TABLE IF NOT EXISTS ci_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -62,5 +61,3 @@ CREATE INDEX IF NOT EXISTS idx_scans_ci_token_id ON scans(ci_token_id);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
 CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_users_login ON users(login);
-
--- Note: Default admin user is created via BOOTSTRAP_ADMIN_* env on first server start (see deploy/.env.example).

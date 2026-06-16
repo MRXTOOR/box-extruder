@@ -42,11 +42,19 @@ func corpSection(buf *bytes.Buffer, level int, title string) {
 func corpBody(buf *bytes.Buffer, text string) {
 	buf.WriteString(`<w:p><w:pPr><w:pStyle w:val="T15"/><w:jc w:val="both"/><w:rPr>`)
 	buf.WriteString(corpRunRPr)
-	buf.WriteString(`</w:rPr></w:pPr><w:r><w:rPr>`)
+	buf.WriteString(`</w:rPr></w:pPr>`)
+	corpWriteRuns(buf, text, false)
+	buf.WriteString(`</w:p>`)
+}
+
+func corpBodyIndented(buf *bytes.Buffer, text string, leftTwips int) {
+	buf.WriteString(`<w:p><w:pPr><w:pStyle w:val="T15"/><w:jc w:val="both"/><w:ind w:left="`)
+	buf.WriteString(strconv.Itoa(leftTwips))
+	buf.WriteString(`"/><w:rPr>`)
 	buf.WriteString(corpRunRPr)
-	buf.WriteString(`</w:rPr><w:t xml:space="preserve">`)
-	buf.WriteString(escapeDocxText(text))
-	buf.WriteString(`</w:t></w:r></w:p>`)
+	buf.WriteString(`</w:rPr></w:pPr>`)
+	corpWriteRuns(buf, text, false)
+	buf.WriteString(`</w:p>`)
 }
 
 func corpInfoTable(buf *bytes.Buffer, rows [][2]string) {

@@ -1,0 +1,49 @@
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand-logo-sm {
+  gap: 10px;
+}
+
+.brand-logo-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(56, 139, 253, 0.2), rgba(163, 113, 247, 0.12));
+  border: 1px solid var(--border-glow);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 20px rgba(56, 139, 253, 0.15);
+  flex-shrink: 0;
+  transition:
+    border-color 0.45s ease,
+    box-shadow 0.45s ease;
+}
+
+.brand-logo-sm .brand-logo-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.brand-logo-mark img {
+  display: block;
+  opacity: 0.95;
+}
+
+.brand-logo-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  text-decoration: none;
+}
+
+.brand-logo-sm .brand-logo-title {
+  font-size: 1.25rem;
+}

@@ -23,7 +23,7 @@ docker compose up -d --build
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-При старте `dast-server` и `dast-worker` автоматически применяют SQL-миграции из встроенного каталога `internal/enterprise/db/migrations/` (учёт в `schema_migrations`). На существующих томах Postgres дополнительных шагов не требуется.
+При старте `server` и `worker` автоматически применяют SQL-миграции из встроенного каталога `internal/enterprise/db/migrations/` (учёт в `schema_migrations`). На существующих томах Postgres дополнительных шагов не требуется.
 
 ### Доступные сервисы
 
@@ -49,7 +49,7 @@ BOOTSTRAP_ADMIN_PASSWORD=change_me_strong_admin_password
 BOOTSTRAP_ADMIN_ROLE=admin
 ```
 
-После создания учётки установите `BOOTSTRAP_ADMIN_ENABLED=false` и перезапустите `dast-server`.
+После создания учётки установите `BOOTSTRAP_ADMIN_ENABLED=false` и перезапустите `server`.
 
 ### Веб-админка
 
@@ -182,16 +182,14 @@ environment:
 
 ```bash
 # Перетег образов
-docker tag box-extruder-dast-server:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-server:1.0.0
-docker tag box-extruder-dast-worker:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-worker:1.0.0
-docker tag box-extruder-frontend:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/frontend:1.0.0
-docker tag box-extruder-nginx:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/nginx:1.0.0
+docker tag server:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/server:1.0.0
+docker tag worker:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/worker:1.0.0
+docker tag frontend:latest docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/frontend:1.0.0
 
 # Пуш в registry
-docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-server:1.0.0
-docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/dast-worker:1.0.0
+docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/server:1.0.0
+docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/worker:1.0.0
 docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/frontend:1.0.0
-docker push docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/nginx:1.0.0
 ```
 
 ## Устранение неполадок
@@ -206,13 +204,13 @@ docker ps
 
 ```bash
 # API
-docker logs dast-server
+docker logs server
 
 # Воркер
-docker logs dast-worker
+docker logs worker
 
-# Nginx (статика + прокси /api)
-docker logs dast-nginx
+# Frontend (статика + прокси /api)
+docker logs frontend
 ```
 
 ### Проверка здоровья

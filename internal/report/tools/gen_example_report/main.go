@@ -13,7 +13,7 @@ import (
 	"github.com/box-extruder/dast/internal/report"
 )
 
-const exampleDemoHost = "example.com"
+const exampleDemoHost = "kubikvpn.com"
 
 func exampleBaseURL() string {
 	return "https://" + exampleDemoHost

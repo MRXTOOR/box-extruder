@@ -77,17 +77,17 @@ func writeEnterpriseDocxSections(body *bytes.Buffer, d Data, meta enterpriseDocx
 
 	corpSection(body, 1, "Состав и границы тестирования")
 	corpBody(body, "Тестируемый компонент: веб-приложение "+d.BaseURL+" и обнаруженные в ходе сканирования эндпоинты.")
-	corpBody(body, "Исключённые из тестирования части: исходный код приложения (SAST), зависимости сборки (SCA), "+
-		"инфраструктура вне области сканирования и сторонние сервисы, не доступные с точки зрения целевого URL.")
+	corpBody(body, "Методика: динамический анализ безопасности приложения (DAST).")
 
 	corpSection(body, 1, "Результаты тестирования")
 	corpSection(body, 2, "Выявленные уязвимости и ошибки конфигурации")
-	writeEnterpriseFindingsSection(body, d.Findings)
+	writeEnterpriseFindingsSection(body, enterpriseReportFindings(d.Findings))
 }
 
 func writeEnterpriseFindingsSection(body *bytes.Buffer, findings []model.Finding) {
 	if len(findings) == 0 {
-		corpBody(body, "По результатам DAST-сканирования уязвимостей не выявлено.")
+		corpBody(body, "По результатам DAST-сканирования подтверждённых уязвимостей не выявлено.")
+		writeEnterpriseConclusionsDocx(body, findings)
 		return
 	}
 	headers := []string{"№", "Идентификатор", "Описание", "Тип анализа", "Уровень критичности", "Статус"}
@@ -104,20 +104,50 @@ func writeEnterpriseFindingsSection(body *bytes.Buffer, findings []model.Finding
 	}
 	corpFindingsTable(body, headers, rows, corpFindingColWidths)
 
-	bySev := map[model.Severity]int{}
-	for _, f := range findings {
-		bySev[f.Severity]++
-	}
-	corpSection(body, 2, "Распределение по уровню критичности")
-	sevPairs := make([][2]string, 0)
-	for _, sev := range []model.Severity{
-		model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo,
-	} {
-		if n := bySev[sev]; n > 0 {
-			sevPairs = append(sevPairs, [2]string{severityRU(sev), fmt.Sprintf("%d", n)})
+	bySev := enterpriseSeverityCounts(findings)
+	if len(bySev) > 0 {
+		corpSection(body, 2, "Распределение по уровню критичности")
+		sevPairs := make([][2]string, 0)
+		for _, sev := range []model.Severity{
+			model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow,
+		} {
+			if n := bySev[sev]; n > 0 {
+				sevPairs = append(sevPairs, [2]string{severityRU(sev), fmt.Sprintf("%d", n)})
+			}
+		}
+		if len(sevPairs) > 0 {
+			corpInfoTable(body, sevPairs)
 		}
 	}
-	corpInfoTable(body, sevPairs)
+
+	corpSection(body, 2, "Рекомендации по устранению уязвимостей")
+	corpBody(body, remediationRecommendationsText)
+	writeEnterpriseConclusionsDocx(body, findings)
+}
+
+func writeEnterpriseConclusionsDocx(body *bytes.Buffer, findings []model.Finding) {
+	corpSection(body, 2, "Выводы")
+	corpBody(body, "На основании проведённого тестирования:")
+	corpBody(body, "• выявлено "+conclusionsTotalPhrase(findings)+", из них:")
+
+	counts := enterpriseSeverityCounts(findings)
+	severityLines := []struct {
+		label string
+		n     int
+	}{
+		{"критических", counts[model.SeverityCritical]},
+		{"высокого уровня", counts[model.SeverityHigh]},
+		{"среднего уровня", counts[model.SeverityMedium]},
+		{"низкого уровня", counts[model.SeverityLow]},
+	}
+	for i, line := range severityLines {
+		end := ","
+		if i == len(severityLines)-1 {
+			end = "."
+		}
+		corpBodyIndented(body, fmt.Sprintf("•\t%s – %d%s", line.label, line.n, end), 720)
+	}
+	corpBody(body, conclusionsAssessmentPhrase(findings))
 }
 
 func truncateForCell(s string, max int) string {

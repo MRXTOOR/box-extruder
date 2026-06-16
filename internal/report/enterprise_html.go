@@ -73,17 +73,18 @@ func WriteEnterpriseHTMLReport(d Data, htmlPath string) error {
 <p><strong>Тестируемый компонент:</strong> `)
 	b.WriteString(`<code>` + escapeHTML(d.BaseURL) + `</code> и обнаруженные в ходе сканирования эндпоинты.`)
 	b.WriteString(`</p>
-<p><strong>Исключённые из тестирования части:</strong> исходный код приложения (SAST), зависимости сборки (SCA),
-инфраструктура вне области сканирования и сторонние сервисы, не доступные с точки зрения целевого URL.</p>`)
+<p><strong>Методика:</strong> динамический анализ безопасности приложения (DAST).</p>`)
+
+	findings := enterpriseReportFindings(d.Findings)
 
 	b.WriteString(`<h2>Результаты тестирования</h2><h3>Выявленные уязвимости и ошибки конфигурации</h3>`)
-	if len(d.Findings) == 0 {
-		b.WriteString(`<p class="empty">По результатам DAST-сканирования уязвимостей не выявлено.</p>`)
+	if len(findings) == 0 {
+		b.WriteString(`<p class="empty">По результатам DAST-сканирования подтверждённых уязвимостей не выявлено.</p>`)
 	} else {
 		b.WriteString(`<table><thead><tr>
 <th class="num">№</th><th>Идентификатор</th><th>Описание</th><th>Тип анализа</th><th>Уровень критичности</th><th>Статус</th>
 </tr></thead><tbody>`)
-		for i, f := range d.Findings {
+		for i, f := range findings {
 			fmt.Fprintf(&b, `<tr><td class="num">%d</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 				i+1,
 				escapeHTML(findingIdentifier(f)),
@@ -95,21 +96,47 @@ func WriteEnterpriseHTMLReport(d Data, htmlPath string) error {
 		}
 		b.WriteString(`</tbody></table>`)
 
-		bySev := map[model.Severity]int{}
-		for _, f := range d.Findings {
-			bySev[f.Severity]++
-		}
-		b.WriteString(`<h3>Сводка по критичности</h3><table><thead><tr><th>Уровень</th><th>Количество</th></tr></thead><tbody>`)
-		for _, sev := range []model.Severity{
-			model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo,
-		} {
-			if n := bySev[sev]; n > 0 {
-				fmt.Fprintf(&b, `<tr><td>%s</td><td>%d</td></tr>`, escapeHTML(severityRU(sev)), n)
+		bySev := enterpriseSeverityCounts(findings)
+		if len(bySev) > 0 {
+			b.WriteString(`<h3>Распределение по уровню критичности</h3><table><thead><tr><th>Уровень</th><th>Количество</th></tr></thead><tbody>`)
+			for _, sev := range []model.Severity{
+				model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow,
+			} {
+				if n := bySev[sev]; n > 0 {
+					fmt.Fprintf(&b, `<tr><td>%s</td><td>%d</td></tr>`, escapeHTML(severityRU(sev)), n)
+				}
 			}
+			b.WriteString(`</tbody></table>`)
 		}
-		b.WriteString(`</tbody></table>`)
 	}
 
+	b.WriteString(`<h3>Рекомендации по устранению уязвимостей</h3><p>`)
+	b.WriteString(escapeHTMLMultiline(remediationRecommendationsText))
+	b.WriteString(`</p>`)
+
+	b.WriteString(`<h3>Выводы</h3>`)
+	b.WriteString(`<p>На основании проведённого тестирования:</p>`)
+	b.WriteString(`<p>• выявлено ` + escapeHTML(conclusionsTotalPhrase(findings)) + `, из них:</p>`)
+	b.WriteString(`<ul style="list-style-type:none;padding-left:1.5em">`)
+	counts := enterpriseSeverityCounts(findings)
+	severityLines := []struct {
+		label string
+		n     int
+	}{
+		{"критических", counts[model.SeverityCritical]},
+		{"высокого уровня", counts[model.SeverityHigh]},
+		{"среднего уровня", counts[model.SeverityMedium]},
+		{"низкого уровня", counts[model.SeverityLow]},
+	}
+	for i, line := range severityLines {
+		end := ","
+		if i == len(severityLines)-1 {
+			end = "."
+		}
+		fmt.Fprintf(&b, `<li>• %s – %d%s</li>`, escapeHTML(line.label), line.n, end)
+	}
+	b.WriteString(`</ul>`)
+	b.WriteString(`<p>` + escapeHTML(conclusionsAssessmentPhrase(findings)) + `</p>`)
 	b.WriteString(`</body></html>`)
 	return os.WriteFile(htmlPath, []byte(b.String()), 0o644)
 }

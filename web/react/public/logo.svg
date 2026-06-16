@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="DAST">
+  <defs>
+    <linearGradient id="dast-grad" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#a371f7"/>
+    </linearGradient>
+  </defs>
+  <path d="M16 3.5L5.5 9v8.5L16 28l10.5-10.5V9L16 3.5z" stroke="url(#dast-grad)" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M16 8v16M8.5 11.5 16 16l7.5-4.5" stroke="url(#dast-grad)" stroke-width="1.3" stroke-linecap="round"/>
+  <circle cx="16" cy="16" r="2.2" fill="url(#dast-grad)"/>
+  <path d="M16 16V11.5" stroke="#58a6ff" stroke-width="1.2" stroke-linecap="round" opacity="0.9"/>
+</svg>

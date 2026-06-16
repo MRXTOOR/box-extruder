@@ -23,7 +23,7 @@ func TestWriteEnterpriseHTMLReport_tables(t *testing.T) {
 			RuleID:          "10038",
 			Title:           "CSP missing",
 			Severity:        model.SeverityMedium,
-			LifecycleStatus: model.LifecycleDetected,
+			LifecycleStatus: model.LifecycleConfirmed,
 			Category:        "zap",
 		}},
 	}, path)

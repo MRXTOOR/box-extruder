@@ -2,6 +2,7 @@ import { ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { KeyRound, Radar, Shield, Users } from 'lucide-react'
 import { useCurrentUser, useIsAdmin } from '../../../shared/auth/userContext'
+import { BrandLogo } from '../../../shared/ui/BrandLogo'
 import { UserMenu } from './UserMenu'
 import './Layout.css'
 
@@ -74,21 +75,9 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="noise" aria-hidden="true"></div>
       <main className="main-content">
         <header className="top">
-          <div className="brand">
-            <div className="logo" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="url(#g)" strokeWidth="1.5" strokeLinejoin="round"/>
-                <path d="M12 2v20M3 7l9 5 9-5" stroke="url(#g)" strokeWidth="1.2" strokeLinecap="round"/>
-                <defs>
-                  <linearGradient id="g" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#58a6ff"/>
-                    <stop offset="1" stopColor="#a371f7"/>
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-            <h1>DAST</h1>
-          </div>
+          <NavLink to="/" className="brand" aria-label="DAST — на главную">
+            <BrandLogo />
+          </NavLink>
 
           <div className="top-actions">
             <nav className="header-nav" aria-label="Основная навигация">

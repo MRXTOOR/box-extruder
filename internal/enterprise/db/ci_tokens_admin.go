@@ -211,7 +211,7 @@ func RevokeCITokenIdempotent(ctx context.Context, pool *pgxpool.Pool, id string)
 
 // EnsureServiceUser returns ci-{name} user, creating if missing.
 func EnsureServiceUser(ctx context.Context, pool *pgxpool.Pool, name string) (*User, error) {
-	login := "ci-" + name
+	login := ServiceUserLoginPrefix + name
 	u, err := GetUserByLogin(ctx, pool, login)
 	if err == nil {
 		return u, nil

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -128,8 +129,20 @@ func GetUserByLogin(ctx context.Context, pool *pgxpool.Pool, login string) (*Use
 	return &user, nil
 }
 
+// ServiceUserLoginPrefix marks technical accounts created for CI tokens (not platform users).
+const ServiceUserLoginPrefix = "ci-"
+
+func IsServiceUserLogin(login string) bool {
+	return strings.HasPrefix(login, ServiceUserLoginPrefix)
+}
+
 func GetUsers(ctx context.Context, pool *pgxpool.Pool) ([]User, error) {
-	rows, err := pool.Query(ctx, "SELECT id, login, role, created_at FROM users ORDER BY created_at DESC")
+	rows, err := pool.Query(ctx,
+		`SELECT id, login, role, created_at FROM users
+		 WHERE login NOT LIKE $1
+		 ORDER BY created_at DESC`,
+		ServiceUserLoginPrefix+"%",
+	)
 	if err != nil {
 		return nil, err
 	}
