@@ -1,4 +1,5 @@
 <h2>dastScan</h2>
-<p>Запуск DAST через HTTP API платформы AppSec-DAST. Нужен curl на агенте.</p>
-<p>Обязательно: <b>apiUrl</b>, <b>target</b>, <b>apiTokenCredentialId</b> (CI-ключ dast_&lt;uuid&gt;).</p>
-<p>Пример и тестовые данные — <code>jenkins/README.md</code>.</p>
+<p>Запуск DAST через HTTP API платформы AppSec-DAST в Docker runner-образе.</p>
+<p>На агенте Jenkins нужен <b>Docker</b>. Образ runner собирается из <code>jenkins/runner/</code> и публикуется в ваш registry.</p>
+<p>Обязательно: <b>runnerImage</b>, <b>apiUrl</b>, <b>target</b>, <b>apiTokenCredentialId</b> (CI-ключ dast_&lt;uuid&gt;).</p>
+<p>Пример, сборка образа и тестовые данные — <code>jenkins/README.md</code> и <code>jenkins/runner/README.md</code>.</p>

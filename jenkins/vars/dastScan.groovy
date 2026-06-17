@@ -2,8 +2,7 @@ import com.appsec.dast.QualityGate
 
 /**
  * dastScan runs a DAST scan against the AppSec-DAST platform from a Jenkins /
- * GitLab (Jenkins-compatible) pipeline: CI token auth, create scan, poll, DOCX
- * artifact, quality gate. Requires curl on the agent (no Docker runner image).
+ * GitLab (Jenkins-compatible) pipeline via a minimal Docker runner image.
  *
  * See vars/dastScan.txt for the full parameter reference.
  */
@@ -12,46 +11,163 @@ def call(Map args = [:]) {
     applyAppCredentialsEnv(cfg)
     String work = '.dast'
     sh "rm -rf '${work}' && mkdir -p '${work}'"
+    writeJSON file: "${work}/config.json", json: buildRunnerConfig(cfg)
 
     Map result = null
     withCredentials(buildBindings(cfg)) {
-        result = runOnAgent(cfg, work)
+        ensureRunnerImage(cfg)
+        runViaDocker(cfg, work)
+        Map scan = readJSON file: "${work}/scan.json"
+        Map finalStatus = readJSON file: "${work}/status.json"
+        String jobId = (scan.jobId ?: scan.id ?: readJSON(file: "${work}/result.json").jobId)?.toString()
+        if (!jobId) {
+            error '[DAST] runner did not produce a jobId'
+        }
+        result = applyGate(scan, finalStatus, cfg, jobId)
         attachReportPaths(result, work)
         archiveArtifacts artifacts: "${work}/dast-*", allowEmptyArchive: true
     }
     return result
 }
 
-private Map runOnAgent(Map cfg, String work) {
-    String curlOpts = buildCurlOpts(cfg)
-    String tokenFile = "${work}/auth.headers"
-    try {
-        apiAuth(cfg.apiUrl, curlOpts, work, tokenFile, cfg)
-        String jobId = apiCreateScan(cfg.apiUrl, curlOpts, work, tokenFile, cfg)
-        echoScanQueued(cfg, jobId)
-        apiPostCIMetadata(cfg.apiUrl, curlOpts, tokenFile, work, jobId, cfg)
-        Map finalStatus = pollUntilDone(cfg.apiUrl, curlOpts, tokenFile, work, jobId, cfg)
-        Map scan = apiGetScan(cfg.apiUrl, curlOpts, tokenFile, work, jobId)
-        writeJSON file: "${work}/dast-findings-${jobId}.json", json: (scan.findings ?: [])
-        if (cfg.archiveReports) {
-            downloadReports(cfg.apiUrl, curlOpts, tokenFile, work, jobId, cfg)
-        }
-        return applyGate(scan, finalStatus, cfg, jobId)
-    } finally {
-        sh "rm -f '${tokenFile}' '${work}'/*.json || true"
+private void runViaDocker(Map cfg, String work) {
+    String suffix = sh(returnStdout: true, script: 'date +%s').trim()
+    String containerName = "dast-runner-${env.BUILD_NUMBER ?: '0'}-${suffix}"
+    String envArgs = buildDockerEnvArgs(cfg)
+    String caMount = ''
+    if (cfg.caCertId) {
+        caMount = '-v "${DAST_CA}:${DAST_CA}:ro" -e DAST_CA="${DAST_CA}"'
     }
+    try {
+        sh """
+            docker run --rm --name '${containerName}' \\
+                -v '${pwd()}/${work}:/work' \\
+                ${caMount} \\
+                ${envArgs} \\
+                '${cfg.runnerImage}'
+        """
+    } finally {
+        // Safety net: remove container if --rm did not run (aborted build, SIGKILL, etc.)
+        sh(returnStatus: true, script: "docker rm -f '${containerName}' >/dev/null 2>&1 || true")
+    }
+}
+
+private String buildDockerEnvArgs(Map cfg) {
+    List args = ['-e BUILD_URL', '-e JOB_NAME', '-e BUILD_NUMBER']
+    if (hasPlatformToken(cfg)) {
+        args.add('-e DAST_CI_TOKEN')
+    } else if (cfg.apiCredentialsId) {
+        args.add('-e DAST_USER')
+        args.add('-e DAST_PASS')
+    }
+    if (hasAppCredentials(cfg)) {
+        args.add('-e APP_USER')
+        args.add('-e APP_PASS')
+    }
+    return args.join(' \\\n            ')
+}
+
+private void ensureRunnerImage(Map cfg) {
+    if (cfg.registryCredentialsId) {
+        String registry = cfg.registryUrl ?: registryHostFromImage(cfg.runnerImage)
+        if (!registry?.trim()) {
+            error 'dastScan: registryUrl required when registryCredentialsId is set and cannot be inferred from runnerImage'
+        }
+        withCredentials([usernamePassword(
+            credentialsId: cfg.registryCredentialsId,
+            usernameVariable: 'REGISTRY_USER',
+            passwordVariable: 'REGISTRY_PASS',
+        )]) {
+            int loginRc = sh(returnStatus: true, script: """
+                set +x
+                echo "\${REGISTRY_PASS}" | docker login --username "\${REGISTRY_USER}" --password-stdin '${registry}'
+                set -x
+            """)
+            if (loginRc != 0) {
+                error "[DAST] docker login failed for registry ${registry}"
+            }
+            try {
+                pullRunnerImage(cfg.runnerImage)
+            } finally {
+                sh(returnStatus: true, script: "docker logout '${registry}' || true")
+            }
+        }
+    } else {
+        pullRunnerImage(cfg.runnerImage)
+    }
+}
+
+private void pullRunnerImage(String image) {
+    int rc = sh(returnStatus: true, script: "docker inspect '${image}' > /dev/null 2>&1")
+    if (rc == 0) {
+        echo "[DAST] runner image ${image} found on agent"
+    } else {
+        echo "[DAST] pulling runner image ${image}"
+        sh "docker pull -q '${image}'"
+    }
+}
+
+private String registryHostFromImage(String image) {
+    String name = image
+    int colon = name.lastIndexOf(':')
+    if (colon > 0 && !name.substring(colon - 1).contains('/')) {
+        name = name.substring(0, colon)
+    }
+    int slash = name.indexOf('/')
+    if (slash < 0) {
+        return ''
+    }
+    String first = name.substring(0, slash)
+    if (first.contains('.') || first.contains(':') || first == 'localhost') {
+        return first
+    }
+    return ''
+}
+
+private Map buildRunnerConfig(Map cfg) {
+    Map json = [
+        apiUrl            : cfg.apiUrl,
+        target            : cfg.target,
+        insecureSkipVerify: cfg.insecureSkipVerify,
+        apiInsecure       : cfg.apiInsecure,
+        timeoutMinutes    : cfg.timeoutMinutes,
+        pollSeconds       : cfg.pollSeconds,
+        reportFormats     : cfg.reportFormats,
+        archiveReports    : cfg.archiveReports,
+        useCiToken        : hasPlatformToken(cfg),
+    ]
+    if (cfg.targetName) {
+        json.targetName = cfg.targetName
+    }
+    if (cfg.uiUrl) {
+        json.uiUrl = cfg.uiUrl
+    }
+    if (cfg.authUrl) {
+        json.authUrl = cfg.authUrl
+    }
+    if (cfg.verifyUrl) {
+        json.verifyUrl = cfg.verifyUrl
+    }
+    if (cfg.katanaDepth != null) {
+        json.katanaDepth = cfg.katanaDepth
+    }
+    if (cfg.katanaMaxUrls != null) {
+        json.katanaMaxUrls = cfg.katanaMaxUrls
+    }
+    if (cfg.zapSpiderMinutes != null) {
+        json.zapSpiderMinutes = cfg.zapSpiderMinutes
+    }
+    if (cfg.zapPassiveSecs != null) {
+        json.zapPassiveSecs = cfg.zapPassiveSecs
+    }
+    if (cfg.startPoints) {
+        json.startPoints = cfg.startPoints
+    }
+    return json
 }
 
 private boolean hasPlatformToken(Map cfg) {
     return cfg.apiTokenCredentialId || cfg.apiToken
-}
-
-private void echoScanQueued(Map cfg, String jobId) {
-    String label = cfg.targetName ?: cfg.target
-    echo "[DAST] scan queued: jobId=${jobId} target=${label}"
-    if (cfg.uiUrl) {
-        echo "[DAST] follow progress: ${cfg.uiUrl}/scans/${jobId}"
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -59,8 +175,9 @@ private void echoScanQueued(Map cfg, String jobId) {
 // ---------------------------------------------------------------------------
 
 private Map normalizeConfig(Map a) {
-    a = applyLegacySferaAliases(a)
-    a = applyFriendlyAliases(a)
+    applyLegacySferaAliases(a)
+    applyFriendlyAliases(a)
+    requireArg(a, 'runnerImage')
     requireArg(a, 'apiUrl')
     requireArg(a, 'target')
     if (!a.apiTokenCredentialId && !a.apiToken && !a.apiCredentialsId) {
@@ -68,6 +185,9 @@ private Map normalizeConfig(Map a) {
     }
 
     Map c = [:]
+    c.runnerImage = a.runnerImage.toString().trim()
+    c.registryCredentialsId = a.registryCredentialsId
+    c.registryUrl = a.registryUrl ? a.registryUrl.toString().trim() : null
     c.apiUrl = a.apiUrl.toString().replaceAll('/+$', '')
     c.uiUrl = a.uiUrl ? a.uiUrl.toString().replaceAll('/+$', '') : null
     c.apiCredentialsId = a.apiCredentialsId
@@ -123,43 +243,41 @@ private Map normalizeConfig(Map a) {
 }
 
 /** Friendly names used in GitLab / new pipelines. */
-private Map applyFriendlyAliases(Map a) {
-    Map m = new LinkedHashMap(a)
-    alias(m, 'target', 'targetUrl')
-    alias(m, 'apiTokenCredentialId', 'ciTokenCredentialId')
-    alias(m, 'apiTokenCredentialId', 'ciTokenId')
-    alias(m, 'apiToken', 'ciToken')
-    alias(m, 'login', 'appLogin')
-    alias(m, 'password', 'appPassword')
-    if (!m.startPoints && m.startPoint) {
-        m.startPoints = [m.startPoint.toString().trim()]
+private void applyFriendlyAliases(Map a) {
+    alias(a, 'runnerImage', 'DAST_RUNNER_IMAGE')
+    alias(a, 'target', 'targetUrl')
+    alias(a, 'apiTokenCredentialId', 'ciTokenCredentialId')
+    alias(a, 'apiTokenCredentialId', 'ciTokenId')
+    alias(a, 'apiToken', 'ciToken')
+    alias(a, 'login', 'appLogin')
+    alias(a, 'password', 'appPassword')
+    if (!a.startPoints && a.startPoint) {
+        a.startPoints = [a.startPoint.toString().trim()]
     }
-    return m
 }
 
 /** Maps legacy Sfera SL parameter names (global_appsec_check_dast_zap_*) to dastScan keys. */
-private Map applyLegacySferaAliases(Map a) {
-    Map m = new LinkedHashMap(a)
-    alias(m, 'apiUrl', 'DAST_API_URL')
-    alias(m, 'target', 'DAST_TARGET_URL_TO_SCAN')
-    alias(m, 'authUrl', 'DAST_TARGET_AUTH_URL')
-    alias(m, 'verifyUrl', 'DAST_TARGET_MARKER_URL')
-    alias(m, 'login', 'DAST_WEB_USR')
-    alias(m, 'password', 'DAST_WEB_PSW')
-    alias(m, 'startPoints', 'DAST_START_POINTS')
-    if (!m.apiTokenCredentialId && !m.apiCredentialsId && !m.apiToken) {
-        if (m.DAST_CI_TOKEN_CRED) {
-            m.apiTokenCredentialId = m.DAST_CI_TOKEN_CRED
-        } else if (m.DAST_AUTH_TOKEN) {
-            String t = m.DAST_AUTH_TOKEN.toString().trim()
+private void applyLegacySferaAliases(Map a) {
+    alias(a, 'runnerImage', 'DAST_RUNNER_IMAGE')
+    alias(a, 'apiUrl', 'DAST_API_URL')
+    alias(a, 'target', 'DAST_TARGET_URL_TO_SCAN')
+    alias(a, 'authUrl', 'DAST_TARGET_AUTH_URL')
+    alias(a, 'verifyUrl', 'DAST_TARGET_MARKER_URL')
+    alias(a, 'login', 'DAST_WEB_USR')
+    alias(a, 'password', 'DAST_WEB_PSW')
+    alias(a, 'startPoints', 'DAST_START_POINTS')
+    if (!a.apiTokenCredentialId && !a.apiCredentialsId && !a.apiToken) {
+        if (a.DAST_CI_TOKEN_CRED) {
+            a.apiTokenCredentialId = a.DAST_CI_TOKEN_CRED
+        } else if (a.DAST_AUTH_TOKEN) {
+            String t = a.DAST_AUTH_TOKEN.toString().trim()
             if (t.startsWith('dast_')) {
-                m.apiToken = t
+                a.apiToken = t
             } else {
-                m.apiTokenCredentialId = t
+                a.apiTokenCredentialId = t
             }
         }
     }
-    return m
 }
 
 private List normalizeStartPoints(Map a) {
@@ -224,199 +342,9 @@ private List buildBindings(Map cfg) {
     return b
 }
 
-private String buildCurlOpts(Map cfg) {
-    List opts = ['-sS', '--connect-timeout', '15', '--max-time', '180']
-    if (cfg.apiInsecure) {
-        opts.add('-k')
-    }
-    if (cfg.caCertId) {
-        opts.add('--cacert "$DAST_CA"')
-    }
-    return opts.join(' ')
-}
-
 // ---------------------------------------------------------------------------
-// API calls
+// Quality gate
 // ---------------------------------------------------------------------------
-
-private void apiAuth(String base, String curlOpts, String work, String tokenFile, Map cfg) {
-    if (hasPlatformToken(cfg) && env.DAST_CI_TOKEN) {
-        writeFile file: tokenFile, text: "Authorization: Bearer ${env.DAST_CI_TOKEN}"
-        return
-    }
-    writeJSON file: "${work}/login.json", json: [login: env.DAST_USER, password: env.DAST_PASS]
-    String code = sh(returnStdout: true, script: """
-        curl ${curlOpts} -o '${work}/login_resp.json' -w '%{http_code}' \
-            -X POST '${base}/api/v1/auth/login' \
-            -H 'Content-Type: application/json' \
-            --data @'${work}/login.json'
-    """).trim()
-    sh "rm -f '${work}/login.json'"
-    if (code != '200') {
-        error "[DAST] login failed (HTTP ${code}). Check apiUrl and apiCredentialsId."
-    }
-    def resp = readJSON file: "${work}/login_resp.json"
-    sh "rm -f '${work}/login_resp.json'"
-    if (!resp.token) {
-        error '[DAST] login response did not contain a token'
-    }
-    writeFile file: tokenFile, text: "Authorization: Bearer ${resp.token}"
-}
-
-private String apiCreateScan(String base, String curlOpts, String work, String tokenFile, Map cfg) {
-    Map body = [targetUrl: cfg.target, insecureSkipVerify: cfg.insecureSkipVerify]
-    if (cfg.authUrl) {
-        body.authUrl = cfg.authUrl
-    }
-    if (cfg.verifyUrl) {
-        body.verifyUrl = cfg.verifyUrl
-    }
-    if (hasAppCredentials(cfg)) {
-        body.login = env.APP_USER
-        body.password = env.APP_PASS
-    }
-    if (cfg.katanaDepth != null) {
-        body.katanaDepth = cfg.katanaDepth as int
-    }
-    if (cfg.katanaMaxUrls != null) {
-        body.katanaMaxUrls = cfg.katanaMaxUrls as int
-    }
-    if (cfg.zapSpiderMinutes != null) {
-        body.zapSpiderMinutes = cfg.zapSpiderMinutes as int
-    }
-    if (cfg.zapPassiveSecs != null) {
-        body.zapPassiveSecs = cfg.zapPassiveSecs as int
-    }
-    if (cfg.startPoints) {
-        body.startPoints = cfg.startPoints.join('\n')
-    }
-
-    writeJSON file: "${work}/create.json", json: body
-    String code = sh(returnStdout: true, script: """
-        curl ${curlOpts} -o '${work}/create_resp.json' -w '%{http_code}' \
-            -X POST '${base}/api/v1/scans' \
-            -H 'Content-Type: application/json' \
-            -H @'${tokenFile}' \
-            --data @'${work}/create.json'
-    """).trim()
-    sh "rm -f '${work}/create.json'"
-    if (code != '201' && code != '200') {
-        String detail = readFileSafe("${work}/create_resp.json")
-        error "[DAST] create scan failed (HTTP ${code}): ${detail}"
-    }
-    def resp = readJSON file: "${work}/create_resp.json"
-    String jobId = resp.jobId ?: resp.id
-    if (!jobId) {
-        error '[DAST] create scan response did not contain a jobId'
-    }
-    return jobId
-}
-
-private void apiPostCIMetadata(String base, String curlOpts, String tokenFile, String work, String jobId, Map cfg) {
-    if (!hasPlatformToken(cfg)) {
-        return
-    }
-    Map body = [:]
-    if (env.BUILD_URL?.trim()) {
-        body.buildUrl = env.BUILD_URL.trim()
-    }
-    if (env.JOB_NAME?.trim()) {
-        body.jobName = env.JOB_NAME.trim()
-    }
-    if (env.BUILD_NUMBER?.trim()) {
-        body.buildNumber = env.BUILD_NUMBER.trim()
-    }
-    if (body.isEmpty()) {
-        return
-    }
-    writeJSON file: "${work}/ci-meta.json", json: body
-    sh(returnStatus: true, script: """
-        curl ${curlOpts} -o /dev/null \
-            -X POST '${base}/api/v1/scans/${jobId}/ci-metadata' \
-            -H 'Content-Type: application/json' \
-            -H @'${tokenFile}' \
-            --data @'${work}/ci-meta.json'
-    """)
-    sh "rm -f '${work}/ci-meta.json'"
-}
-
-private Map apiGetStatus(String base, String curlOpts, String tokenFile, String work, String jobId) {
-    String code = sh(returnStdout: true, script: """
-        curl ${curlOpts} -o '${work}/status.json' -w '%{http_code}' \
-            -H @'${tokenFile}' \
-            '${base}/api/v1/scans/${jobId}/status'
-    """).trim()
-    if (code != '200') {
-        error "[DAST] status check failed (HTTP ${code})"
-    }
-    return readJSON(file: "${work}/status.json")
-}
-
-private Map apiGetScan(String base, String curlOpts, String tokenFile, String work, String jobId) {
-    String code = sh(returnStdout: true, script: """
-        curl ${curlOpts} -o '${work}/scan.json' -w '%{http_code}' \
-            -H @'${tokenFile}' \
-            '${base}/api/v1/scans/${jobId}'
-    """).trim()
-    if (code != '200') {
-        error "[DAST] fetching scan result failed (HTTP ${code})"
-    }
-    return readJSON(file: "${work}/scan.json")
-}
-
-private void apiCancel(String base, String curlOpts, String tokenFile, String work, String jobId) {
-    sh(returnStatus: true, script: """
-        curl ${curlOpts} -o /dev/null \
-            -X POST '${base}/api/v1/scans/${jobId}/cancel' \
-            -H @'${tokenFile}'
-    """)
-}
-
-// ---------------------------------------------------------------------------
-// Orchestration
-// ---------------------------------------------------------------------------
-
-private Map pollUntilDone(String base, String curlOpts, String tokenFile, String work, String jobId, Map cfg) {
-    List terminal = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'CANCELED', 'PARTIAL_SUCCESS']
-    int maxIters = ((cfg.timeoutMinutes * 60) / cfg.pollSeconds) as int
-    if (maxIters < 1) {
-        maxIters = 1
-    }
-    Map last = [:]
-    for (int i = 0; i < maxIters; i++) {
-        last = apiGetStatus(base, curlOpts, tokenFile, work, jobId)
-        echo "[DAST] ${jobId} status=${last.status} progress=${last.progress ?: 0}% (poll ${i + 1}/${maxIters})"
-        boolean done = false
-        for (String t : terminal) {
-            if (t == last.status) {
-                done = true
-            }
-        }
-        if (done) {
-            return last
-        }
-        sleep(time: cfg.pollSeconds, unit: 'SECONDS')
-    }
-    echo "[DAST] timeout reached after ${cfg.timeoutMinutes} min; cancelling scan ${jobId}"
-    apiCancel(base, curlOpts, tokenFile, work, jobId)
-    error "[DAST] scan ${jobId} did not finish within ${cfg.timeoutMinutes} minutes"
-}
-
-private void downloadReports(String base, String curlOpts, String tokenFile, String work, String jobId, Map cfg) {
-    for (String fmt : cfg.reportFormats) {
-        String ext = (fmt == 'endpoints' || fmt == 'discovered-urls') ? 'txt' : fmt
-        String out = "${work}/dast-report-${jobId}.${ext}"
-        String code = sh(returnStdout: true, script: """
-            curl ${curlOpts} -o '${out}' -w '%{http_code}' \
-                -H @'${tokenFile}' \
-                '${base}/api/v1/scans/${jobId}/reports?format=${fmt}'
-        """).trim()
-        if (code != '200') {
-            echo "[DAST] report '${fmt}' not available (HTTP ${code})"
-            sh "rm -f '${out}'"
-        }
-    }
-}
 
 private Map applyGate(Map scan, Map finalStatus, Map cfg, String jobId) {
     List findings = (scan.findings ?: []) as List
@@ -461,14 +389,6 @@ private Map applyGate(Map scan, Map finalStatus, Map cfg, String jobId) {
 
     echo "[DAST] quality gate passed for scan ${jobId}"
     return result
-}
-
-private String readFileSafe(String path) {
-    try {
-        return readFile(file: path).trim()
-    } catch (ignored) {
-        return '(no response body)'
-    }
 }
 
 private void attachReportPaths(Map result, String work) {

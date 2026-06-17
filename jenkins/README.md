@@ -1,6 +1,6 @@
 # AppSec-DAST — Shared Library (GitLab / Sfera)
 
-Каталог `jenkins/` подключается в оркестраторе как **Pipeline Shared Library** с именем, например, `appsec-dast`.
+Каталог `jenkins/` подключается в оркестраторе как **Pipeline Shared Library** с именем, например, `appsec-dast` или `global_appsec_check_dast_sfera_lib`.
 
 ```
 jenkins/
@@ -8,16 +8,32 @@ jenkins/
 │   └── dastScan.groovy          # библиотека — вызов dastScan(...)
 ├── src/com/appsec/dast/
 │   └── QualityGate.groovy       # quality gate (нужен для dastScan)
+├── runner/                      # минимальный Docker-образ для агента
+│   ├── Dockerfile
+│   ├── dast-scan.sh
+│   └── README.md
 └── README.md                    # этот файл
 ```
 
-**На агенте пайплайна:** `curl` (Docker-образ не нужен).
+**На агенте пайплайна:** Docker (образ runner публикуется в ваш registry; curl на агенте не нужен). Контейнер runner удаляется после скана (`docker run --rm` + `docker rm -f` в `finally`).
+
+## Runner-образ
+
+Сборка и публикация — см. [`runner/README.md`](runner/README.md).
+
+В пайплайне укажите полное имя образа через `runnerImage` (без жёсткого дефолта в библиотеке):
+
+```groovy
+runnerImage: 'your-registry.example.com/appsec-dast/runner:1.0.0'
+```
 
 ## Подключение
 
 1. Указать репозиторий / путь к каталогу `jenkins/` в настройках Shared Library.
-2. Создать credential **Secret text** с CI-ключом `dast_<uuid>` (выдаётся в ЛК AppSec-DAST или админом).
-3. В Jenkinsfile:
+2. Собрать и запушить runner-образ в registry (см. `jenkins/runner/`).
+3. Создать credential **Secret text** с CI-ключом `dast_<uuid>` (выдаётся в ЛК AppSec-DAST или админом).
+4. При необходимости — credential для `docker login` в registry (`registryCredentialsId`).
+5. В Jenkinsfile:
 
 ```groovy
 @Library('appsec-dast') _
@@ -25,10 +41,9 @@ jenkins/
 
 ## Тестовые данные (пример)
 
-Замените на свои значения перед запуском в проде.
-
 | Параметр | Тестовое значение |
 |----------|-------------------|
+| Runner image | `your-registry/appsec-dast/runner:1.0.0` |
 | URL платформы | `http://appsec-dast.internal` |
 | CI-ключ (credential ID) | `dast-ci-staging` → значение `dast_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 | Имя цели | `staging-myapp` |
@@ -47,14 +62,15 @@ jenkins/
 ## Пример пайплайна
 
 ```groovy
-@Library('appsec-dast') _
+@Library('global_appsec_check_dast_sfera_lib@1.0.1') _
 
 pipeline {
     agent any
 
     environment {
         DAST_API_URL       = 'http://appsec-dast.internal'
-        DAST_CI_TOKEN_CRED = 'dast-ci-staging'   // Secret text: dast_<uuid>
+        DAST_CI_TOKEN_CRED = 'dast-ci-staging'
+        DAST_RUNNER_IMAGE  = 'your-registry/appsec-dast/runner:1.0.0'
     }
 
     stages {
@@ -62,6 +78,9 @@ pipeline {
             steps {
                 script {
                     def result = dastScan(
+                        runnerImage: env.DAST_RUNNER_IMAGE,
+                        registryCredentialsId: 'your-docker-cred',  // опционально
+
                         apiUrl: env.DAST_API_URL,
                         apiTokenCredentialId: env.DAST_CI_TOKEN_CRED,
 
@@ -95,27 +114,3 @@ pipeline {
         }
     }
 }
-```
-
-## Параметры `dastScan(...)`
-
-| Параметр | Описание |
-|----------|----------|
-| `apiUrl` | URL платформы AppSec-DAST |
-| `apiTokenCredentialId` | ID credential с CI-ключом `dast_<uuid>` |
-| `target` | URL сканируемого приложения |
-| `targetName` | Имя цели (для логов) |
-| `login` / `password` | Учётка приложения |
-| `appAuthCredentialsId` | Jenkins credential вместо login/password |
-| `authUrl` | Endpoint авторизации (login API) |
-| `verifyUrl` | URL проверки сессии (опционально) |
-| `startPoints` | Список URL или многострочная строка |
-| `katanaDepth`, `katanaMaxUrls`, `zapSpiderMinutes`, `zapPassiveSecs` | Настройки скана |
-| `failOn`, `timeoutMinutes`, `reportFormats` | Quality gate и отчёт |
-
-## Результат
-
-- `result.jobId` — ID скана на платформе
-- `result.reportDocx` — путь к DOCX в `.dast/`
-- Артефакты сборки: `.dast/dast-*`
-- Скан виден в UI у владельца CI-ключа с меткой **CI**
