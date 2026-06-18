@@ -15,6 +15,9 @@ func Apply(cfg config.ScanAsCode, in []model.Finding, evidenceByID map[string]mo
 	out := make([]model.Finding, 0, len(in))
 	seen := map[string]struct{}{}
 	for _, f := range in {
+		if IsCrawlTelemetryFinding(f) {
+			continue
+		}
 		f.LocationKey = BuildLocationKey(cfg.Noise.Dedupe, f)
 		key := f.LocationKey + "|" + f.RuleID
 		if _, ok := seen[key]; ok {

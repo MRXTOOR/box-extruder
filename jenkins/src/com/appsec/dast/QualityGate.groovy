@@ -1,10 +1,5 @@
 package com.appsec.dast
 
-/**
- * QualityGate evaluates DAST findings against configurable thresholds.
- *
- * Pure data logic only (no pipeline steps), so it is CPS-safe and unit-testable.
- */
 class QualityGate implements Serializable {
 
     /** Severity levels ordered from least to most severe. */
@@ -19,7 +14,6 @@ class QualityGate implements Serializable {
         return i < 0 ? 0 : i
     }
 
-    /** countBySeverity tallies findings into a per-severity histogram. */
     static Map<String, Integer> countBySeverity(List findings) {
         Map<String, Integer> counts = [INFO: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0]
         if (findings == null) {
@@ -36,17 +30,7 @@ class QualityGate implements Serializable {
         return counts
     }
 
-    /**
-     * evaluate returns a list of human-readable gate violations.
-     * An empty list means the gate passed.
-     *
-     * Supported thresholds:
-     *   failOn       - minimum severity that fails the build when count > 0
-     *   maxCritical  - maximum allowed CRITICAL findings
-     *   maxHigh      - maximum allowed HIGH findings
-     *   maxMedium    - maximum allowed MEDIUM findings
-     *   maxLow       - maximum allowed LOW findings
-     */
+
     static List<String> evaluate(Map<String, Integer> counts, Map thresholds) {
         List<String> violations = []
         if (thresholds == null) {

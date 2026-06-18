@@ -38,6 +38,9 @@ func ParseURLExportData(data []byte, ctxID string, dedupe config.DedupeConfig) (
 			continue
 		}
 		u := strings.TrimSpace(line)
+		if noise.IsAttackPayloadURL(u) {
+			continue
+		}
 		if _, ok := seen[u]; ok {
 			continue
 		}

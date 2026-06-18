@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AppSec-DAST Jenkins runner: HTTP client for platform API (auth, scan, poll, reports).
 set -euo pipefail
 
 WORK="${DAST_WORK_DIR:-/work}"
@@ -25,7 +24,7 @@ jq_val() {
     local key="$1"
     local def="${2:-}"
     local v
-    v="$(jq -r "${key} // empty" "$CONFIG")"
+    v="$(jq -r ".${key} // empty" "$CONFIG")"
     if [[ -z "$v" || "$v" == "null" ]]; then
         echo "$def"
     else
@@ -37,7 +36,7 @@ jq_bool() {
     local key="$1"
     local def="${2:-false}"
     local v
-    v="$(jq -r "${key} // \"${def}\"" "$CONFIG")"
+    v="$(jq -r ".${key} // \"${def}\"" "$CONFIG")"
     case "${v,,}" in
         true|1|yes|on) echo "true" ;;
         *) echo "false" ;;

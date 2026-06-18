@@ -12,10 +12,27 @@ jenkins/
 │   ├── Dockerfile
 │   ├── dast-scan.sh
 │   └── README.md
+├── emulate-pipeline.ps1         # локальный запуск без Jenkins
 └── README.md                    # этот файл
 ```
 
 **На агенте пайплайна:** Docker (образ runner публикуется в ваш registry; curl на агенте не нужен). Контейнер runner удаляется после скана (`docker run --rm` + `docker rm -f` в `finally`).
+
+## Локальная эмуляция (без Jenkins)
+
+Скрипт [`emulate-pipeline.ps1`](emulate-pipeline.ps1):
+
+```powershell
+cd jenkins
+docker build -t appsec-dast-runner:1.0.0 -f runner/Dockerfile runner
+
+.\emulate-pipeline.ps1 `
+  -CiToken "dast_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+  -Target "https://example.com/" `
+  -ApiUrl "http://host.docker.internal"
+```
+
+Результаты — каталог `.dast/` в корне репозитория. Параметры `-JobName`, `-BuildNumber`, `-BuildUrl` — опциональные CI metadata (по умолчанию `local-emulation` / `1`).
 
 ## Runner-образ
 

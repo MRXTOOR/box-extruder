@@ -27,6 +27,8 @@ logs/
 secrets/
 
 # DAST runtime artifacts
+.dast/
+jenkins/emulate-pipeline.ps1
 work/jobs/
 work/tmp/
 work/tmp-*.json

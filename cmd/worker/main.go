@@ -222,11 +222,17 @@ func prepareJobConfig(job *queue.JobMessage) ([]byte, *config.ScanAsCode, error)
 func handleRunError(ctx context.Context, pool *db.Pool, rdb *redis.Client, job *queue.JobMessage, err error) {
 	if errors.Is(err, runner.ErrCanceled) || isJobCanceled(ctx, rdb, job.JobID) {
 		log.Printf("Job %s was canceled", job.JobID)
-		db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
+		err := db.UpdateScanStatus(ctx, pool, job.JobID, "CANCELLED")
+		if err != nil {
+			return
+		}
 		return
 	}
 	log.Printf("Job %s failed: %v", job.JobID, err)
-	db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
+	err = db.UpdateScanStatus(ctx, pool, job.JobID, "FAILED")
+	if err != nil {
+		return
+	}
 }
 
 // finalizeJob records the terminal scan status and persists findings to the DB.
@@ -307,12 +313,12 @@ func findingsToDBRows(scanID string, raw []model.Finding) []db.Finding {
 			"evidenceRefs":    f.EvidenceRefs,
 		}
 		out = append(out, db.Finding{
-			ScanID:      scanID,
-			Severity:    string(f.Severity),
-			Name:        name,
-			Description: desc,
+			ScanID:       scanID,
+			Severity:     string(f.Severity),
+			Name:         name,
+			Description:  desc,
 			EndpointPath: noise.EndpointURLFromLocationKey(f.LocationKey),
-			Evidence:    evidence,
+			Evidence:     evidence,
 		})
 	}
 	return out

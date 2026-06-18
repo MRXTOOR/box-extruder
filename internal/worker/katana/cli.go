@@ -253,6 +253,9 @@ func rowToModels(row katanaJSONLine, ctxID string, dedupe config.DedupeConfig, n
 	if endpoint == "" {
 		return nil, model.Evidence{}
 	}
+	if noise.IsAttackPayloadURL(endpoint) {
+		return nil, model.Evidence{}
+	}
 	method := strings.ToUpper(strings.TrimSpace(row.Request.Method))
 	if method == "" {
 		method = "GET"

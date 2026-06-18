@@ -9,6 +9,7 @@ import (
 
 	"github.com/box-extruder/dast/internal/config"
 	"github.com/box-extruder/dast/internal/model"
+	"github.com/box-extruder/dast/internal/noise"
 	"github.com/box-extruder/dast/internal/storage"
 )
 
@@ -36,7 +37,7 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 			if raw == "" {
 				continue
 			}
-			if isAttackPayloadURL(raw) {
+			if noise.IsAttackPayloadURL(raw) {
 				continue
 			}
 			u, ok := normalizeDiscoveryURL(raw, preserveQuery)

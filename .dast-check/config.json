@@ -1,0 +1,1 @@
+{"apiUrl":"http://host.docker.internal","target":"https://example.com/","useCiToken":true,"timeoutMinutes":1,"pollSeconds":5,"reportFormats":["docx"],"archiveReports":false}
