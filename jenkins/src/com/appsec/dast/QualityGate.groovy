@@ -2,10 +2,8 @@ package com.appsec.dast
 
 class QualityGate implements Serializable {
 
-    /** Severity levels ordered from least to most severe. */
     static final List<String> ORDER = ['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
-    /** rank returns the ordinal of a severity (unknown values rank as INFO). */
     static int rank(String severity) {
         if (severity == null) {
             return 0

@@ -1,11 +1,5 @@
 import com.appsec.dast.QualityGate
 
-/**
- * dastScan runs a DAST scan against the AppSec-DAST platform from a Jenkins /
- * GitLab (Jenkins-compatible) pipeline via a minimal Docker runner image.
- *
- * See vars/dastScan.txt for the full parameter reference.
- */
 def call(Map args = [:]) {
     Map cfg = normalizeConfig(args)
     applyAppCredentialsEnv(cfg)
@@ -47,7 +41,6 @@ private void runViaDocker(Map cfg, String work) {
                 '${cfg.runnerImage}'
         """
     } finally {
-        // Safety net: remove container if --rm did not run (aborted build, SIGKILL, etc.)
         sh(returnStatus: true, script: "docker rm -f '${containerName}' >/dev/null 2>&1 || true")
     }
 }
@@ -170,10 +163,6 @@ private boolean hasPlatformToken(Map cfg) {
     return cfg.apiTokenCredentialId || cfg.apiToken
 }
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
 private Map normalizeConfig(Map a) {
     applyLegacySferaAliases(a)
     applyFriendlyAliases(a)
@@ -184,29 +173,47 @@ private Map normalizeConfig(Map a) {
         error "dastScan: provide apiTokenCredentialId (CI key dast_<uuid> from UI) or apiCredentialsId"
     }
 
-    Map c = [:]
-    c.runnerImage = a.runnerImage.toString().trim()
-    c.registryCredentialsId = a.registryCredentialsId
-    c.registryUrl = a.registryUrl ? a.registryUrl.toString().trim() : null
-    c.apiUrl = a.apiUrl.toString().replaceAll('/+$', '')
-    c.uiUrl = a.uiUrl ? a.uiUrl.toString().replaceAll('/+$', '') : null
-    c.apiCredentialsId = a.apiCredentialsId
-    c.apiTokenCredentialId = a.apiTokenCredentialId
-    c.apiToken = a.apiToken
+    Map c = [
+        runnerImage           : a.runnerImage.toString().trim(),
+        registryCredentialsId : a.registryCredentialsId,
+        registryUrl           : a.registryUrl ? a.registryUrl.toString().trim() : null,
+        apiUrl                : a.apiUrl.toString().replaceAll('/+$', ''),
+        uiUrl                 : a.uiUrl ? a.uiUrl.toString().trim().replaceAll('/+$', '') : null,
+        apiCredentialsId      : a.apiCredentialsId,
+        apiTokenCredentialId  : a.apiTokenCredentialId,
+        apiToken              : a.apiToken,
+        target                : a.target.toString().trim(),
+        targetName            : a.targetName ? a.targetName.toString().trim() : null,
+        appAuthCredentialsId  : a.appAuthCredentialsId,
+        appLogin              : a.appLogin ?: a.login,
+        appPassword           : a.appPassword ?: a.password,
+        authUrl               : a.authUrl ? a.authUrl.toString().trim() : null,
+        verifyUrl             : a.verifyUrl ? a.verifyUrl.toString().trim() : null,
+        insecureSkipVerify    : asBool(a.insecureSkipVerify, false),
+        apiInsecure           : asBool(a.apiInsecure, false),
+        caCertId              : a.caCertId,
+        katanaDepth           : a.katanaDepth,
+        katanaMaxUrls         : a.katanaMaxUrls,
+        zapSpiderMinutes      : a.zapSpiderMinutes,
+        zapPassiveSecs        : a.zapPassiveSecs,
+        startPoints           : normalizeStartPoints(a),
+        failOn                : a.failOn,
+        maxCritical           : a.maxCritical,
+        maxHigh               : a.maxHigh,
+        maxMedium             : a.maxMedium,
+        maxLow                : a.maxLow,
+        failOnScanError       : asBool(a.failOnScanError, true),
+        timeoutMinutes        : (a.timeoutMinutes ?: 60) as int,
+        pollSeconds           : (a.pollSeconds ?: 15) as int,
+        reportFormats         : (a.reportFormats ?: ['docx']) as List,
+        archiveReports        : asBool(a.archiveReports, true),
+    ]
     if (c.apiTokenCredentialId && c.apiCredentialsId) {
         error "dastScan: use either apiTokenCredentialId or apiCredentialsId, not both"
     }
     if (c.apiToken && (c.apiTokenCredentialId || c.apiCredentialsId)) {
         error "dastScan: apiToken is for tests only; use apiTokenCredentialId in pipelines"
     }
-
-    c.target = a.target.toString().trim()
-    c.targetName = a.targetName ? a.targetName.toString().trim() : null
-    c.appAuthCredentialsId = a.appAuthCredentialsId
-    c.appLogin = a.appLogin ?: a.login
-    c.appPassword = a.appPassword ?: a.password
-    c.authUrl = a.authUrl ? a.authUrl.toString().trim() : null
-    c.verifyUrl = a.verifyUrl ? a.verifyUrl.toString().trim() : null
 
     if (c.appLogin && !c.appPassword) {
         error "dastScan: password is required when login is set"
@@ -218,31 +225,9 @@ private Map normalizeConfig(Map a) {
         error "dastScan: use either appAuthCredentialsId or login/password, not both"
     }
 
-    c.insecureSkipVerify = asBool(a.insecureSkipVerify, false)
-    c.apiInsecure = asBool(a.apiInsecure, false)
-    c.caCertId = a.caCertId
-
-    c.katanaDepth = a.katanaDepth
-    c.katanaMaxUrls = a.katanaMaxUrls
-    c.zapSpiderMinutes = a.zapSpiderMinutes
-    c.zapPassiveSecs = a.zapPassiveSecs
-    c.startPoints = normalizeStartPoints(a)
-
-    c.failOn = a.failOn
-    c.maxCritical = a.maxCritical
-    c.maxHigh = a.maxHigh
-    c.maxMedium = a.maxMedium
-    c.maxLow = a.maxLow
-    c.failOnScanError = asBool(a.failOnScanError, true)
-
-    c.timeoutMinutes = (a.timeoutMinutes ?: 60) as int
-    c.pollSeconds = (a.pollSeconds ?: 15) as int
-    c.reportFormats = (a.reportFormats ?: ['docx']) as List
-    c.archiveReports = asBool(a.archiveReports, true)
     return c
 }
 
-/** Friendly names used in GitLab / new pipelines. */
 private void applyFriendlyAliases(Map a) {
     alias(a, 'runnerImage', 'DAST_RUNNER_IMAGE')
     alias(a, 'target', 'targetUrl')
@@ -252,11 +237,10 @@ private void applyFriendlyAliases(Map a) {
     alias(a, 'login', 'appLogin')
     alias(a, 'password', 'appPassword')
     if (!a.startPoints && a.startPoint) {
-        a.startPoints = [a.startPoint.toString().trim()]
+        a.startPoints = a.startPoint.toString().trim()
     }
 }
 
-/** Maps legacy Sfera SL parameter names (global_appsec_check_dast_zap_*) to dastScan keys. */
 private void applyLegacySferaAliases(Map a) {
     alias(a, 'runnerImage', 'DAST_RUNNER_IMAGE')
     alias(a, 'apiUrl', 'DAST_API_URL')
@@ -282,13 +266,34 @@ private void applyLegacySferaAliases(Map a) {
 
 private List normalizeStartPoints(Map a) {
     if (a.startPoints instanceof List) {
-        return (a.startPoints as List).collect { it?.toString()?.trim() }.findAll { it }
+        List out = []
+        for (def item : (a.startPoints as List)) {
+            String v = item?.toString()?.trim()
+            if (v) {
+                out.add(v)
+            }
+        }
+        return out
     }
     if (a.startPoints instanceof String && a.startPoints.trim()) {
-        return a.startPoints.split(/\r?\n/).collect { it.trim() }.findAll { it }
+        List out = []
+        for (String line : a.startPoints.split(/\r?\n/)) {
+            String v = line.trim()
+            if (v) {
+                out.add(v)
+            }
+        }
+        return out
     }
     if (a.DAST_START_POINTS instanceof String && a.DAST_START_POINTS.trim()) {
-        return a.DAST_START_POINTS.split(/\r?\n/).collect { it.trim() }.findAll { it }
+        List out = []
+        for (String line : a.DAST_START_POINTS.split(/\r?\n/)) {
+            String v = line.trim()
+            if (v) {
+                out.add(v)
+            }
+        }
+        return out
     }
     return []
 }
@@ -341,10 +346,6 @@ private List buildBindings(Map cfg) {
     }
     return b
 }
-
-// ---------------------------------------------------------------------------
-// Quality gate
-// ---------------------------------------------------------------------------
 
 private Map applyGate(Map scan, Map finalStatus, Map cfg, String jobId) {
     List findings = (scan.findings ?: []) as List
