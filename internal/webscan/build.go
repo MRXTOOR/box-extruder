@@ -191,7 +191,7 @@ func buildScanPlan(katDepth, zapSpiderMin, passiveWait int) []config.ScanStep {
 		},
 		{
 			StepType:               "zapBaseline",
-			Enabled:                true,
+			Enabled:                false, // временно: %PUBLIC_URL% в SPA Сферы раздувает обход до 60k+ URL
 			ZAPAutomationFramework: true,
 			ZAPSpiderTraditional:   true,
 			// SPA targets (like Juice Shop) require Ajax spider to discover in-app routes/endpoints.

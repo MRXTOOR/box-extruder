@@ -142,6 +142,9 @@ func runPipeline(opt Options) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config required")
 	}
+	if os.Getenv("DAST_SKIP_ZAP") == "1" {
+		opt.SkipZAPDocker = true
+	}
 	ctx := opt.Ctx
 	if ctx == nil {
 		ctx = context.Background()

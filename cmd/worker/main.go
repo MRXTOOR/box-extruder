@@ -351,7 +351,7 @@ func buildConfig(job *queue.JobMessage) *config.ScanAsCode {
 		},
 		{
 			StepType:               "zapBaseline",
-			Enabled:                true,
+			Enabled:                false,
 			ZAPAutomationFramework: true,
 			ZAPSpiderTraditional:   true,
 			ZAPSpiderAjax:          true,

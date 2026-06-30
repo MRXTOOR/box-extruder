@@ -1,0 +1,16 @@
+ARG REGISTRY=docker-ppbd-prod.sfera-t1.ru/appsec-docker-private
+
+FROM ${REGISTRY}/node:20-alpine AS builder
+WORKDIR /app
+ARG NPM_REGISTRY=https://proxy-ppbd-prod.sfera-t1.ru/repository/APPSEC-npm-proxy-group/
+COPY web/react/package*.json ./
+RUN npm config set registry "${NPM_REGISTRY}"
+RUN npm install
+COPY web/react/ ./
+RUN npm run build
+
+FROM ${REGISTRY}/nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY web/react/nginx.conf /etc/nginx/nginx.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

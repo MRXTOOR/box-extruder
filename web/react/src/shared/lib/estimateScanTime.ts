@@ -12,7 +12,7 @@ export interface ScanTimeEstimate {
   detail: string | null
 }
 
-const DEFAULT_PLAN_SECONDS = 180 + 15 * 60 + 180 + 900 + 300 // katana + zap + wapiti + nuclei
+const DEFAULT_PLAN_SECONDS = 180 + 900 + 300 // katana + wapiti + nuclei (ZAP временно отключён)
 
 const STEP_SECONDS: Record<string, number> = {
   katana: 180,

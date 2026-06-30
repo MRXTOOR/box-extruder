@@ -106,6 +106,14 @@ func TestBuildScanYAML_ZAPStep_AjaxTimingEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildScanYAML_ZAPStep_DisabledByDefault(t *testing.T) {
+	_, doc := parsedBuildYAML(t, CreateOptions{Target: "https://sfera.example.ru/"})
+	zap := zapStep(t, doc)
+	if zap["enabled"] != false {
+		t.Fatalf("zapBaseline must be disabled by default, got %v", zap["enabled"])
+	}
+}
+
 func TestBuildScanYAML_ZAPStep_AjaxSpiderEnabled(t *testing.T) {
 	_, doc := parsedBuildYAML(t, CreateOptions{Target: "https://sfera.example.ru/"})
 	zap := zapStep(t, doc)

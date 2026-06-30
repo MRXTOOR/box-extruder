@@ -1,0 +1,50 @@
+ARG REGISTRY=docker-ppbd-prod.sfera-t1.ru/appsec-docker-private
+FROM ${REGISTRY}/debian:bookworm-slim
+
+ARG APT_MIRROR_URL=http://sfera-t1.ru/app/ppbd-proxy/api/repository/OSMAX-debian-proxy
+ARG DIST_CODENAME=bookworm
+ARG TOOLS_BASE_URL=https://proxy-ppbd-prod.sfera-t1.ru/repository/APPSEC-tools
+
+RUN echo "deb [trusted=yes] ${APT_MIRROR_URL} ${DIST_CODENAME} main" > /etc/apt/sources.list
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl wget jq bash unzip pandoc wkhtmltopdf procps git \
+    python3 python3-pip wapiti \
+    firefox-esr \
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+    libpango-1.0-0 libcairo2 libasound2 libx11-6 libx11-xcb1 libxcb1 libxext6 \
+    libxshmfence1 libglib2.0-0 fonts-liberation && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/java && \
+    wget -q -O /tmp/jdk21.tar.gz ${TOOLS_BASE_URL}/OpenJDK21U-jdk_x64_linux_hotspot_21.0.5_11.tar.gz && \
+    tar -xzf /tmp/jdk21.tar.gz -C /opt/java && \
+    rm /tmp/jdk21.tar.gz && \
+    mv /opt/java/jdk-21* /opt/java/jdk-21
+
+ENV JAVA_HOME=/opt/java/jdk-21
+ENV PATH=/usr/local/bin:/opt/java/jdk-21/bin:$PATH
+
+RUN mkdir -p /workspace/work /zap/wrk /zap-home/.ZAP
+
+RUN wget -q -O /tmp/katana.zip ${TOOLS_BASE_URL}/katana_1.5.0_linux_amd64.zip && \
+    unzip -o -q /tmp/katana.zip -d /tmp/ && mv /tmp/katana /usr/local/bin/katana && rm /tmp/katana.zip
+
+RUN mkdir -p /root/.cache/rod && \
+    (katana -u https://example.com -headless -d 1 -ct 25s -silent -jsonl 2>/dev/null || true)
+
+RUN wget -q -O /tmp/zap.zip ${TOOLS_BASE_URL}/ZAP_WEEKLY_D-2026-04-14.zip && \
+    mkdir -p /opt/ZAP && unzip -q /tmp/zap.zip -d /opt/ZAP && \
+    ZAP_DIR=$(ls /opt/ZAP/ | head -1) && \
+    ln -sf /opt/ZAP/$ZAP_DIR/zap.sh /usr/local/bin/zap.sh && \
+    rm /tmp/zap.zip
+
+RUN wget -q -O /tmp/nuclei.zip ${TOOLS_BASE_URL}/nuclei_3.2.0_linux_amd64.zip && \
+    unzip -o -q /tmp/nuclei.zip -d /tmp/ && mv /tmp/nuclei /usr/local/bin/nuclei && rm /tmp/nuclei.zip
+
+RUN wget -q -O /tmp/nuclei-templates.tgz ${TOOLS_BASE_URL}/nuclei-templates-master.tar.gz && \
+    mkdir -p /opt && tar -xzf /tmp/nuclei-templates.tgz -C /opt && \
+    mv /opt/nuclei-templates-master /opt/nuclei-templates && \
+    rm /tmp/nuclei-templates.tgz
+
+ENV DAST_NUCLEI_TEMPLATES_DIR=/opt/nuclei-templates

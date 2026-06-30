@@ -196,7 +196,7 @@ func (pl *pipeline) runZAP(st *model.JobStep, stepCfg config.ScanStep) {
 	opt, cfg, jobID, jobRoot, authRes := pl.opt, pl.cfg, pl.jobID, pl.jobRoot, pl.authRes
 	if opt.SkipZAPDocker {
 		st.Status = model.StepSkipped
-		emit(opt, jobID, "info", "Step zapBaseline: skipped (-skip-zap)")
+		emit(opt, jobID, "info", "Step zapBaseline: skipped (DAST_SKIP_ZAP=1 or -skip-zap)")
 		return
 	}
 	// ZAP spiders only from the configured target base URLs and startPoints.

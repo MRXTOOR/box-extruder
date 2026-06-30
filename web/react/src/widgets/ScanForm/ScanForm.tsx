@@ -165,6 +165,17 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
         />
       </div>
 
+
+      <label className={styles.checkboxLabel}>
+        <input
+          type="checkbox"
+          checked={insecureSkipVerify}
+          onChange={(e) => setInsecureSkipVerify(e.target.checked)}
+          disabled={loading}
+        />
+        <span>Пропускать проверку TLS-сертификатов (для самоподписанных)</span>
+      </label>
+
       <details className={styles.advSettings} open={advOpen}>
         <summary onClick={(e) => { e.preventDefault(); setAdvOpen(!advOpen) }}>
           Дополнительные настройки сканирования
@@ -236,16 +247,6 @@ export const ScanForm: FC<ScanFormProps> = ({ onSubmit }) => {
                 disabled={loading}
               />
             </div>
-
-            <label className={`${styles.checkboxLabel} ${styles.advGridFull}`}>
-              <input
-                type="checkbox"
-                checked={insecureSkipVerify}
-                onChange={(e) => setInsecureSkipVerify(e.target.checked)}
-                disabled={loading}
-              />
-              <span>Пропускать проверку TLS-сертификатов (для самоподписанных)</span>
-            </label>
           </div>
         </div>
       </details>
