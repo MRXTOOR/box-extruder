@@ -1,17 +1,14 @@
-ARG REGISTRY=docker-ppbd-prod.sfera-t1.ru/appsec-docker-private
-
-FROM ${REGISTRY}/golang:1.25-alpine AS builder
+FROM docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/golang:1.25-alpine AS builder
 WORKDIR /app
-ARG GOPROXY_URL=https://proxy-ppbd-prod.sfera-t1.ru/repository/KAAPSEC-go-proxy-group/
 ENV GOTOOLCHAIN=auto
-ENV GOPROXY=${GOPROXY_URL}
+ENV GOPROXY=https://proxy-ppbd-prod.sfera-t1.ru/repository/KAAPSEC-go-proxy-group/
 
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /dast-server ./cmd/server
 
-FROM ${REGISTRY}/alpine:3.19
+FROM docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/alpine:3.19
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /dast-server /dast-server
 EXPOSE 8080

@@ -1,18 +1,14 @@
-ARG REGISTRY=docker-ppbd-prod.sfera-t1.ru/appsec-docker-private
-ARG WORKER_BASE=${REGISTRY}/appsec-dast/worker-base:1.0.0
-
-FROM ${REGISTRY}/golang:1.25-alpine AS builder
+FROM docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/golang:1.25-alpine AS builder
 WORKDIR /app
-ARG GOPROXY_URL=https://proxy-ppbd-prod.sfera-t1.ru/repository/KAAPSEC-go-proxy-group/
 ENV GOTOOLCHAIN=auto
-ENV GOPROXY=${GOPROXY_URL}
+ENV GOPROXY=https://proxy-ppbd-prod.sfera-t1.ru/repository/KAAPSEC-go-proxy-group/
 
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /dast-worker ./cmd/worker
 
-FROM ${WORKER_BASE}
+FROM docker-ppbd-prod.sfera-t1.ru/appsec-docker-private/appsec-dast/worker-base:1.0.0
 
 COPY --from=builder /dast-worker /usr/local/bin/
 COPY templates/ /workspace/templates/
