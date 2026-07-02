@@ -526,24 +526,24 @@ func TestBuildAutomationYAML_ReplacerIsFirstJob(t *testing.T) {
 // ── buildAutomationYAML: job ordering ────────────────────────────────────────
 
 func TestBuildAutomationYAML_JobOrderTradAndAjax(t *testing.T) {
-	// Order must be: [replacer?] spider* passiveScan-wait spiderAjax* passiveScan-wait ... export report
+	// Order: [replacer?] spider* requestor? passiveScan-wait spiderAjax* passiveScan-wait ... export report
 	step := config.ScanStep{ZAPSpiderTraditional: true, ZAPSpiderAjax: true}
-	doc := parsedDoc(t, step, []string{"https://example.com/"}, nil, nil, nil)
+	probes := []map[string]any{{"method": "GET", "url": "https://example.com/api/x"}}
+	doc := parsedDoc(t, step, []string{"https://example.com/"}, nil, nil, probes)
 	types := jobTypes(doc)
 	raw := strings.Join(types, ",")
 
 	idxSpider := strings.Index(raw, "spider,")
+	idxReq := strings.Index(raw, "requestor")
+	idxPassive := strings.Index(raw, "passiveScan-wait")
 	idxAjax := strings.Index(raw, "spiderAjax")
 	idxExport := strings.Index(raw, "export")
 	idxReport := strings.Index(raw, "report")
 
-	if idxSpider < 0 {
-		t.Fatalf("no spider job: %v", types)
+	if idxSpider < 0 || idxReq < 0 || idxPassive < 0 || idxAjax < 0 || idxExport < 0 || idxReport < 0 {
+		t.Fatalf("missing job types: %v", types)
 	}
-	if idxAjax < 0 {
-		t.Fatalf("no spiderAjax job: %v", types)
-	}
-	if !(idxSpider < idxAjax && idxAjax < idxExport && idxExport < idxReport) {
+	if !(idxSpider < idxReq && idxReq < idxPassive && idxPassive < idxAjax && idxAjax < idxExport && idxExport < idxReport) {
 		t.Fatalf("wrong job order: %v", types)
 	}
 }
@@ -708,13 +708,19 @@ func TestBuildAutomationYAML_FullSPAConfig(t *testing.T) {
 		t.Fatalf("replacer must be first, got: %v", types[:3])
 	}
 
-	// 6. Job order: spider → passiveScan-wait → spiderAjax → passiveScan-wait → export → report.
+	// 6. Job order: spider → [requestor →] passiveScan-wait → spiderAjax → passiveScan-wait → export → report.
 	raw := strings.Join(types, ",")
 	spiderIdx := strings.Index(raw, "spider,")
+	reqIdx := strings.Index(raw, "requestor")
+	passiveIdx := strings.Index(raw, "passiveScan-wait")
 	ajaxIdx := strings.Index(raw, "spiderAjax")
 	exportIdx := strings.Index(raw, "export")
 	reportIdx := strings.Index(raw, "report")
-	if !(spiderIdx < ajaxIdx && ajaxIdx < exportIdx && exportIdx < reportIdx) {
+	if reqIdx >= 0 {
+		if !(spiderIdx < reqIdx && reqIdx < passiveIdx && passiveIdx < ajaxIdx && ajaxIdx < exportIdx && exportIdx < reportIdx) {
+			t.Fatalf("wrong job order with requestor: %v", types)
+		}
+	} else if !(spiderIdx < passiveIdx && passiveIdx < ajaxIdx && ajaxIdx < exportIdx && exportIdx < reportIdx) {
 		t.Fatalf("wrong job order: %v", types)
 	}
 }

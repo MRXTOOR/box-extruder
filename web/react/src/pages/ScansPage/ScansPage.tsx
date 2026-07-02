@@ -37,11 +37,7 @@ export function ScansPage() {
 
   const handleViewEndpoints = async (jobId: string) => {
     try {
-      const endpoints = await api.getScanEndpoints(jobId)
-      const blob = new Blob([endpoints.join('\n')], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank')
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      await downloadReport(jobId, 'endpoints')
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err))
     }

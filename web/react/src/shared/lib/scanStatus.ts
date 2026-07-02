@@ -40,6 +40,8 @@ export function stepLabel(stepType: string): string {
   switch (stepType) {
     case 'katana':
       return 'Katana'
+    case 'httpxProbe':
+      return 'httpx'
     case 'zapBaseline':
       return 'ZAP Baseline'
     case 'wapiti':

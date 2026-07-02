@@ -14,6 +14,7 @@ import (
 	"github.com/box-extruder/dast/internal/model"
 	"github.com/box-extruder/dast/internal/payloads"
 	"github.com/box-extruder/dast/internal/storage"
+	"github.com/box-extruder/dast/internal/worker/httpx"
 	"github.com/box-extruder/dast/internal/worker/katana"
 	"github.com/box-extruder/dast/internal/worker/nuclei"
 	"github.com/box-extruder/dast/internal/worker/wapiti"
@@ -96,6 +97,8 @@ func (pl *pipeline) runStep(st *model.JobStep, stepCfg config.ScanStep) {
 	switch st.StepType {
 	case model.StepKatana:
 		pl.runKatana(st, stepCfg)
+	case model.StepHttpx:
+		pl.runHttpx(st, stepCfg)
 	case model.StepCrawl, model.StepPassive, model.StepTargetedActive, model.StepFullActive, model.StepVerification:
 		st.Metrics.URLsSeen = 1 // Placeholder: real crawl/active would run here.
 	case model.StepZAPBaseline:
@@ -192,6 +195,60 @@ func (pl *pipeline) runKatana(st *model.JobStep, stepCfg config.ScanStep) {
 	st.Status = model.StepSucceeded
 }
 
+func (pl *pipeline) runHttpx(st *model.JobStep, stepCfg config.ScanStep) {
+	opt, cfg, jobID, authRes := pl.opt, pl.cfg, pl.jobID, pl.authRes
+	if !stepCfg.Enabled {
+		st.Status = model.StepSkipped
+		return
+	}
+	targets := httpx.FilterFeedURLs(pl.discoveryFeed)
+	if len(targets) == 0 {
+		st.Status = model.StepSkipped
+		emit(opt, jobID, "info", "httpx: no URLs in discovery feed, skipping")
+		return
+	}
+	var hdr []string
+	for k, v := range authRes.HeaderInject {
+		hdr = append(hdr, fmt.Sprintf("%s: %s", k, v))
+	}
+	outDir := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "httpx-out")
+	emit(opt, jobID, "info", fmt.Sprintf("httpx: probing %d URLs", len(targets)))
+	hf, he, alive, dead, herr := httpx.RunCLI(httpx.CLIOptions{
+		Targets:   targets,
+		Headers:   hdr,
+		OutDir:    outDir,
+		ContextID: authRes.Context.ContextID,
+		Dedupe:    cfg.Noise.Dedupe,
+	})
+	if herr != nil {
+		st.Status = model.StepFailed
+		st.Error = herr.Error()
+		emit(opt, jobID, "error", "httpx: "+st.Error)
+		_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "error", "msg": st.Error, "step": string(st.StepType)})
+		return
+	}
+	pl.collect(hf, he, collectOpts{collectEndpoints: true, addToFeed: false})
+	if httpx.Drop4xxEnabled() && len(dead) > 0 {
+		deadSet := make(map[string]struct{}, len(dead))
+		for _, u := range dead {
+			deadSet[u] = struct{}{}
+		}
+		filtered := pl.discoveryFeed[:0]
+		for _, u := range pl.discoveryFeed {
+			if _, drop := deadSet[u]; drop {
+				continue
+			}
+			filtered = append(filtered, u)
+		}
+		pl.discoveryFeed = filtered
+		emit(opt, jobID, "info", fmt.Sprintf("httpx: removed %d dead URLs from feed", len(dead)))
+	}
+	st.Metrics.FindingsRaw = len(hf)
+	st.Metrics.URLsSeen = len(alive)
+	st.Status = model.StepSucceeded
+	emit(opt, jobID, "info", fmt.Sprintf("httpx: %d live URLs", len(alive)))
+}
+
 func (pl *pipeline) runZAP(st *model.JobStep, stepCfg config.ScanStep) {
 	opt, cfg, jobID, jobRoot, authRes := pl.opt, pl.cfg, pl.jobID, pl.jobRoot, pl.authRes
 	if opt.SkipZAPDocker {
@@ -239,12 +296,17 @@ func (pl *pipeline) runZAP(st *model.JobStep, stepCfg config.ScanStep) {
 			xssPayloadPath = p
 		}
 	}
+	feedURLs := zapworker.SelectFeedURLsForZAP(pl.discoveryFeed, zapworker.FeedProbeMax())
+	feedProbes := zapworker.BuildFeedRequestorProbes(feedURLs, authHeaders)
+	if len(feedProbes) > 0 {
+		emit(opt, jobID, "info", fmt.Sprintf("ZAP: %d feed requestor probes from Katana discovery", len(feedProbes)))
+	}
 	if zapworker.UseAutomation(stepCfg) {
 		emit(opt, jobID, "info", fmt.Sprintf("ZAP: Automation Framework (%d seed URLs)", len(zapSeeds)))
 		zf, ze, zerr = zapworker.RunAutomation(
 			zapSeeds, zapDir, stepCfg.ZAPDockerImage, opt.ConfigFileDir,
 			cfg.Scope.Allow, stepCfg, authHeaders, sqlPayloadPath, xssPayloadPath,
-			authRes.Context.ContextID, cfg.Noise.Dedupe,
+			feedProbes, authRes.Context.ContextID, cfg.Noise.Dedupe,
 		)
 	} else {
 		emit(opt, jobID, "info", "ZAP: baseline script (docker)")
@@ -275,13 +337,10 @@ func (pl *pipeline) runZAP(st *model.JobStep, stepCfg config.ScanStep) {
 
 func (pl *pipeline) runWapiti(st *model.JobStep, stepCfg config.ScanStep) {
 	opt, cfg, jobID, authRes := pl.opt, pl.cfg, pl.jobID, pl.authRes
-	target := ""
-	if len(cfg.Targets) > 0 {
-		target = strings.TrimSpace(cfg.Targets[0].BaseURL)
-	}
-	if target == "" {
+	targets := nucleiBasesFromTargets(cfg)
+	if len(targets) == 0 {
 		st.Status = model.StepSkipped
-		emit(opt, jobID, "warn", "Wapiti: no target base URL, skipping")
+		emit(opt, jobID, "warn", "Wapiti: no target URLs, skipping")
 		return
 	}
 	wapitiDir := filepath.Join(storage.JobRoot(opt.WorkDir, jobID), "wapiti-out")
@@ -299,23 +358,49 @@ func (pl *pipeline) runWapiti(st *model.JobStep, stepCfg config.ScanStep) {
 		sort.Strings(keys)
 		emit(opt, jobID, "info", "Wapiti: request headers: "+strings.Join(keys, ", "))
 	}
-	emit(opt, jobID, "info", "Wapiti CLI (wapiti-scanner/wapiti)")
-	wf, we, werr := wapiti.RunCLI(wapiti.CLIOptions{
-		Target:                target,
-		OutDir:                wapitiDir,
-		ScanForce:             stepCfg.WapitiScanForce,
-		Timeout:               stepCfg.WapitiTimeout,
-		Headers:               authHeaders,
-		InsecureSkipTLSVerify: cfg.InsecureSkipTLSVerify,
-		ContextID:             authRes.Context.ContextID,
-		Dedupe:                cfg.Noise.Dedupe,
-	})
-	if werr != nil {
-		st.Status = model.StepFailed
-		st.Error = werr.Error()
-		emit(opt, jobID, "error", "Wapiti: "+st.Error)
-		_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "error", "msg": st.Error, "step": string(st.StepType)})
-		return
+	emit(opt, jobID, "info", fmt.Sprintf("Wapiti: scanning %d start points", len(targets)))
+	perTimeout := stepCfg.WapitiTimeout
+	if perTimeout <= 0 {
+		perTimeout = 300
+	}
+	locSeen := make(map[string]struct{})
+	var wf []model.Finding
+	var we []model.Evidence
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		emit(opt, jobID, "info", "Wapiti CLI: "+target)
+		tf, te, werr := wapiti.RunCLI(wapiti.CLIOptions{
+			Target:                target,
+			OutDir:                wapitiDir,
+			ScanForce:             stepCfg.WapitiScanForce,
+			Timeout:               perTimeout,
+			Headers:               authHeaders,
+			InsecureSkipTLSVerify: cfg.InsecureSkipTLSVerify,
+			ContextID:             authRes.Context.ContextID,
+			Dedupe:                cfg.Noise.Dedupe,
+		})
+		if werr != nil {
+			st.Status = model.StepFailed
+			st.Error = werr.Error()
+			emit(opt, jobID, "error", "Wapiti: "+st.Error)
+			_ = storage.AppendEvent(opt.WorkDir, jobID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339), "level": "error", "msg": st.Error, "step": string(st.StepType)})
+			return
+		}
+		for _, f := range tf {
+			key := f.LocationKey
+			if key == "" {
+				key = f.Title
+			}
+			if _, ok := locSeen[key]; ok {
+				continue
+			}
+			locSeen[key] = struct{}{}
+			wf = append(wf, f)
+		}
+		we = append(we, te...)
 	}
 	pl.collect(wf, we, collectOpts{addToFeed: true})
 	st.Metrics.FindingsRaw = len(wf)
@@ -501,7 +586,7 @@ func warnPlanOrdering(opt Options, jobID string, plan []config.ScanStep) {
 			wantDiscoveryFeed = true
 			nucleiWithFeedIdx = i
 		}
-		if s.StepType == string(model.StepKatana) || s.StepType == string(model.StepZAPBaseline) {
+		if s.StepType == string(model.StepKatana) || s.StepType == string(model.StepHttpx) || s.StepType == string(model.StepZAPBaseline) {
 			haveDiscovery = true
 		}
 	}

@@ -41,6 +41,7 @@ func RunAutomation(
 	step config.ScanStep,
 	authHeaders map[string]string,
 	sqlPayloadPath, xssPayloadPath string,
+	feedProbes []map[string]any,
 	contextID string,
 	dedupe config.DedupeConfig,
 ) ([]model.Finding, []model.Evidence, error) {
@@ -91,6 +92,9 @@ func RunAutomation(
 		remapped = dedupeSeedURLs(remapped)
 		probeBase := remapped[0]
 		probes := BuildMergedPayloadProbes(probeBase, authHeaders, sqlPayloadPath, xssPayloadPath)
+		if len(feedProbes) > 0 {
+			probes = append(probes, feedProbes...)
+		}
 		yamlBytes, err = buildAutomationYAML(remapped, za, step, reportDir, authHeaders, probes)
 		if err != nil {
 			return nil, nil, err
@@ -201,6 +205,10 @@ func buildSPAContextExcludePaths() []string {
 		`.*/static/media/.*`,
 		`.*\.(ttf|woff2?|eot|otf|png|jpg|jpeg|gif|svg|ico|webp|mp4|mp3|pdf)(\?.*)?$`,
 		`.*/remoteEntry\.js(\?.*)?$`,
+		`.*PUBLIC_URL.*`,
+		`.*%25%25.*`,
+		`.*/manifest\.json(\?.*)?$`,
+		`.*/static/.*`,
 	}
 }
 
@@ -339,17 +347,17 @@ func (p zapJobPlan) buildJobs(authHeaders map[string]string) []map[string]any {
 			})
 		}
 	}
-	jobs = append(jobs, p.passiveWaitJob())
-	if p.useAjax {
-		jobs = append(jobs, p.ajaxJobs()...)
-		jobs = append(jobs, p.passiveWaitJob())
-	}
 	if len(p.sqlProbes) > 0 {
 		jobs = append(jobs, map[string]any{
 			"type":       "requestor",
 			"parameters": map[string]any{},
 			"requests":   p.sqlProbes,
 		})
+	}
+	jobs = append(jobs, p.passiveWaitJob())
+	if p.useAjax {
+		jobs = append(jobs, p.ajaxJobs()...)
+		jobs = append(jobs, p.passiveWaitJob())
 	}
 	if zapActiveScanEnabled() {
 		jobs = append(jobs, p.activeScanJob(), p.passiveWaitJob())

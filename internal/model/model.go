@@ -21,6 +21,7 @@ type StepType string
 const (
 	StepCrawl           StepType = "crawl"
 	StepKatana          StepType = "katana"
+	StepHttpx           StepType = "httpxProbe"
 	StepWapiti          StepType = "wapiti"
 	StepPassive         StepType = "passive"
 	StepTargetedActive  StepType = "targetedActive"

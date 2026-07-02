@@ -1,4 +1,4 @@
-import { Scan, Finding, ScanConfig, ScanStatusResponse } from '../../entities/Scan/model/types'
+import { Scan, Finding, ScanConfig, ScanStatusResponse, PaginatedResponse } from '../../entities/Scan/model/types'
 import {
   CiTokenCreateResponse,
   CiTokenListItem,
@@ -94,8 +94,27 @@ export const api = {
     return handleJsonResponse(res)
   },
 
-  async getScan(id: string): Promise<Scan & { findings: Finding[] }> {
+  async getScan(id: string): Promise<Scan> {
     const res = await fetch(`${BASE_URL}/scans/${id}`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async getScanFindings(
+    id: string,
+    params: { limit?: number; offset?: number; severity?: string; q?: string } = {},
+  ): Promise<PaginatedResponse<Finding>> {
+    const q = new URLSearchParams()
+    if (params.limit != null) q.set('limit', String(params.limit))
+    if (params.offset != null) q.set('offset', String(params.offset))
+    if (params.severity) q.set('severity', params.severity)
+    if (params.q) q.set('q', params.q)
+    const qs = q.toString()
+    const res = await fetch(`${BASE_URL}/scans/${id}/findings${qs ? `?${qs}` : ''}`, { headers: headers() })
+    return handleJsonResponse(res)
+  },
+
+  async getScanFindingsCounts(id: string): Promise<Record<string, number>> {
+    const res = await fetch(`${BASE_URL}/scans/${id}/findings/counts`, { headers: headers() })
     return handleJsonResponse(res)
   },
 
@@ -113,8 +132,16 @@ export const api = {
     return data || { status: 'UNKNOWN' }
   },
 
-  async getScanEndpoints(jobId: string): Promise<string[]> {
-    const res = await fetch(`${BASE_URL}/scans/${jobId}/endpoints`, { headers: headers() })
+  async getScanEndpoints(
+    jobId: string,
+    params: { limit?: number; offset?: number; q?: string } = {},
+  ): Promise<PaginatedResponse<string>> {
+    const q = new URLSearchParams()
+    if (params.limit != null) q.set('limit', String(params.limit))
+    if (params.offset != null) q.set('offset', String(params.offset))
+    if (params.q) q.set('q', params.q)
+    const qs = q.toString()
+    const res = await fetch(`${BASE_URL}/scans/${jobId}/endpoints${qs ? `?${qs}` : ''}`, { headers: headers() })
     return handleJsonResponse(res)
   },
 

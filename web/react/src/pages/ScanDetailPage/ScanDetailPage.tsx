@@ -9,7 +9,7 @@ import styles from './ScanDetailPage.module.css'
 
 export function ScanDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const { scan, findings, statusInfo, loading, canceling, handleCancel, handleRestart } = useScanDetail(id)
+  const { scan, statusInfo, referenceDurationSeconds, loading, canceling, handleCancel, handleRestart } = useScanDetail(id)
   const [endpointsOpen, setEndpointsOpen] = useState(false)
 
   if (loading) return <div className={styles.loading}>Загрузка...</div>
@@ -26,6 +26,7 @@ export function ScanDetailPage() {
       <ScanDetailHeader
         scan={scan}
         statusInfo={statusInfo}
+        referenceDurationSeconds={referenceDurationSeconds}
         isRunning={isRunning}
         isTerminal={isTerminal}
         canceling={canceling}
@@ -34,7 +35,12 @@ export function ScanDetailPage() {
         onOpenEndpoints={() => setEndpointsOpen(true)}
       />
 
-      <FindingsSection findings={findings} isRunning={isRunning} />
+      <FindingsSection
+        key={`${scan.status}-${scan.finishedAt ?? ''}`}
+        scanId={id || ''}
+        totalHint={scan.findingsCount}
+        isRunning={isRunning}
+      />
 
       <EndpointsModal open={endpointsOpen} jobId={jobId} onClose={() => setEndpointsOpen(false)} />
     </div>

@@ -48,6 +48,9 @@ RUN wget -q -O /tmp/zap.zip https://github.com/zaproxy/zaproxy/releases/download
 RUN wget -q -O /tmp/nuclei.zip https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.zip && \
     unzip -o -q /tmp/nuclei.zip -d /tmp/ && mv /tmp/nuclei /usr/local/bin/nuclei && rm /tmp/nuclei.zip
 
+RUN wget -q -O /tmp/httpx.zip https://github.com/projectdiscovery/httpx/releases/download/v1.6.9/httpx_1.6.9_linux_amd64.zip && \
+    unzip -o -q /tmp/httpx.zip -d /tmp/ && mv /tmp/httpx /usr/local/bin/httpx && rm /tmp/httpx.zip
+
 # Официальные community-шаблоны Nuclei (https://github.com/projectdiscovery/nuclei-templates)
 RUN wget -q -O /tmp/nuclei-templates.tgz https://github.com/projectdiscovery/nuclei-templates/archive/refs/heads/master.tar.gz && \
     mkdir -p /opt && tar -xzf /tmp/nuclei-templates.tgz -C /opt && \

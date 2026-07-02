@@ -64,24 +64,28 @@ func TestBuildScanYAML_PipelineAndDiscovery(t *testing.T) {
 	}
 	scan, _ := doc["scan"].(map[string]any)
 	plan, _ := scan["plan"].([]any)
-	if len(plan) != 4 {
-		t.Fatalf("plan steps: want 4 (katana,zap,wapiti,nuclei), got %d", len(plan))
+	if len(plan) != 5 {
+		t.Fatalf("plan steps: want 5 (katana,httpx,zap,wapiti,nuclei), got %d", len(plan))
 	}
 	s0, _ := plan[0].(map[string]any)
 	if s0["stepType"] != "katana" || s0["katanaHeadless"] != true {
 		t.Fatalf("katana step: %v", s0)
 	}
 	s1, _ := plan[1].(map[string]any)
-	if s1["stepType"] != "zapBaseline" {
+	if s1["stepType"] != "httpxProbe" {
 		t.Fatalf("step1: %v", s1["stepType"])
 	}
 	s2, _ := plan[2].(map[string]any)
-	if s2["stepType"] != "wapiti" {
+	if s2["stepType"] != "zapBaseline" {
 		t.Fatalf("step2: %v", s2["stepType"])
 	}
 	s3, _ := plan[3].(map[string]any)
-	if s3["stepType"] != "nucleiTemplates" {
+	if s3["stepType"] != "wapiti" {
 		t.Fatalf("step3: %v", s3["stepType"])
+	}
+	s4, _ := plan[4].(map[string]any)
+	if s4["stepType"] != "nucleiTemplates" {
+		t.Fatalf("step4: %v", s4["stepType"])
 	}
 }
 
@@ -106,11 +110,14 @@ func TestBuildScanYAML_ZAPStep_AjaxTimingEnabled(t *testing.T) {
 	}
 }
 
-func TestBuildScanYAML_ZAPStep_DisabledByDefault(t *testing.T) {
+func TestBuildScanYAML_ZAPStep_EnabledByDefault(t *testing.T) {
 	_, doc := parsedBuildYAML(t, CreateOptions{Target: "https://sfera.example.ru/"})
 	zap := zapStep(t, doc)
-	if zap["enabled"] != false {
-		t.Fatalf("zapBaseline must be disabled by default, got %v", zap["enabled"])
+	if zap["enabled"] != true {
+		t.Fatalf("zapBaseline must be enabled by default, got %v", zap["enabled"])
+	}
+	if zap["zapAjaxMaxCrawlStates"] != 200 {
+		t.Fatalf("zapAjaxMaxCrawlStates: want 200, got %v", zap["zapAjaxMaxCrawlStates"])
 	}
 }
 
@@ -157,7 +164,7 @@ func TestBuildScanYAML_ScopeDeny_BinaryAssets(t *testing.T) {
 		t.Fatal("scope.deny must be present in YAML output")
 	}
 	// All binary-asset extensions should appear in the deny pattern.
-	for _, ext := range []string{"ttf", "woff", "png", "jpg", "ico", "svg", "pdf"} {
+	for _, ext := range []string{"ttf", "woff", "png", "jpg", "ico", "svg", "pdf", "PUBLIC_URL", "manifest\\.json"} {
 		if !strings.Contains(string(raw), ext) {
 			t.Errorf("scope.deny missing extension %q", ext)
 		}

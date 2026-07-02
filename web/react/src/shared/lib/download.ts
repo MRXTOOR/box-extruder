@@ -2,7 +2,7 @@ import { api } from '../api/api'
 
 type ReportFormat = 'html' | 'docx' | 'pdf' | 'endpoints' | 'discovered-urls'
 
-export async function downloadReport(jobId: string, format: 'html' | 'docx' | 'pdf' = 'docx'): Promise<void> {
+export async function downloadReport(jobId: string, format: ReportFormat = 'docx'): Promise<void> {
   const { blob, filename, contentType } = await api.getReport(jobId, format)
   const url = URL.createObjectURL(blob)
   try {

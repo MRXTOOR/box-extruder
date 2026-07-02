@@ -213,25 +213,98 @@ func DeleteScan(ctx context.Context, pool *pgxpool.Pool, jobID string) error {
 }
 
 func GetFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string) ([]Finding, error) {
+	items, _, err := GetFindingsByScanIDPaginated(ctx, pool, scanID, FindingsQuery{Limit: 100000})
+	return items, err
+}
+
+type FindingsQuery struct {
+	Limit    int
+	Offset   int
+	Severity string
+	Q        string
+}
+
+func CountFindingsByScanID(ctx context.Context, pool *pgxpool.Pool, scanID string, q FindingsQuery) (int, error) {
+	where, args := findingsWhereClause(scanID, q)
+	var total int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM findings`+where, args...).Scan(&total)
+	return total, err
+}
+
+func GetFindingSeverityCounts(ctx context.Context, pool *pgxpool.Pool, scanID string) (map[string]int, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, scan_id, severity, name, description, endpoint_path, evidence, created_at
-		 FROM findings WHERE scan_id = $1 ORDER BY created_at DESC`,
+		`SELECT severity, COUNT(*) FROM findings WHERE scan_id = $1 GROUP BY severity`,
 		scanID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var sev string
+		var n int
+		if err := rows.Scan(&sev, &n); err != nil {
+			return nil, err
+		}
+		out[strings.ToUpper(strings.TrimSpace(sev))] = n
+	}
+	return out, nil
+}
 
+func GetFindingsByScanIDPaginated(ctx context.Context, pool *pgxpool.Pool, scanID string, q FindingsQuery) ([]Finding, int, error) {
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+	if q.Limit > 200 {
+		q.Limit = 200
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	total, err := CountFindingsByScanID(ctx, pool, scanID, q)
+	if err != nil {
+		return nil, 0, err
+	}
+	where, args := findingsWhereClause(scanID, q)
+	args = append(args, q.Limit, q.Offset)
+	rows, err := pool.Query(ctx,
+		`SELECT id, scan_id, severity, name, description, endpoint_path, evidence, created_at
+		 FROM findings`+where+`
+		 ORDER BY CASE UPPER(severity)
+		   WHEN 'CRITICAL' THEN 5 WHEN 'HIGH' THEN 4 WHEN 'MEDIUM' THEN 3 WHEN 'LOW' THEN 2 ELSE 1
+		 END DESC, created_at DESC
+		 LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)),
+		args...,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
 	var findings []Finding
 	for rows.Next() {
 		var f Finding
 		if err := rows.Scan(&f.ID, &f.ScanID, &f.Severity, &f.Name, &f.Description, &f.EndpointPath, &f.Evidence, &f.CreatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		findings = append(findings, f)
 	}
-	return findings, nil
+	return findings, total, nil
+}
+
+func findingsWhereClause(scanID string, q FindingsQuery) (string, []any) {
+	args := []any{scanID}
+	where := ` WHERE scan_id = $1`
+	if sev := strings.TrimSpace(q.Severity); sev != "" && strings.ToUpper(sev) != "ALL" {
+		args = append(args, strings.ToUpper(sev))
+		where += fmt.Sprintf(` AND UPPER(severity) = $%d`, len(args))
+	}
+	if text := strings.TrimSpace(q.Q); text != "" {
+		args = append(args, "%"+text+"%")
+		n := len(args)
+		where += fmt.Sprintf(` AND (name ILIKE $%d OR description ILIKE $%d OR endpoint_path ILIKE $%d)`, n, n, n)
+	}
+	return where, args
 }
 
 // ReplaceFindingsForScan deletes existing findings for a scan and inserts the new set.

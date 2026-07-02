@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../shared/api/api'
-import { Scan, Finding, ScanStatus, ScanStatusResponse } from '../../entities/Scan/model/types'
+import { Scan, ScanStatus, ScanStatusResponse } from '../../entities/Scan/model/types'
 import { isTerminalStatus } from '../../shared/lib/scanStatus'
+import { findReferenceDurationSeconds } from '../../shared/lib/estimateScanTime'
 
 export function useScanDetail(id?: string) {
   const navigate = useNavigate()
   const [scan, setScan] = useState<Scan | null>(null)
-  const [findings, setFindings] = useState<Finding[]>([])
   const [statusInfo, setStatusInfo] = useState<ScanStatusResponse | null>(null)
+  const [referenceDurationSeconds, setReferenceDurationSeconds] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [canceling, setCanceling] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -16,9 +17,9 @@ export function useScanDetail(id?: string) {
   const loadData = async () => {
     if (!id) return
     try {
-      const scanData = await api.getScan(id)
+      const [scanData, allScans] = await Promise.all([api.getScan(id), api.getScans()])
       setScan(scanData)
-      setFindings(scanData.findings || [])
+      setReferenceDurationSeconds(findReferenceDurationSeconds(allScans || [], scanData))
     } catch (err) {
       console.error(err)
     } finally {
@@ -26,7 +27,7 @@ export function useScanDetail(id?: string) {
     }
   }
 
-  const startPolling = () => {
+  const startPolling = useCallback(() => {
     if (!id) return
     if (pollingRef.current) clearInterval(pollingRef.current)
     const poll = async () => {
@@ -38,7 +39,6 @@ export function useScanDetail(id?: string) {
           setScan((prev) => (prev ? { ...prev, status: typed.status as ScanStatus } : null))
           if (isTerminalStatus(typed.status)) {
             if (pollingRef.current) clearInterval(pollingRef.current)
-            // Scan just finished: refetch so findings/endpoints reflect the final result.
             loadData()
           }
         }
@@ -48,7 +48,7 @@ export function useScanDetail(id?: string) {
     }
     poll()
     pollingRef.current = setInterval(poll, 3000)
-  }
+  }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -58,8 +58,7 @@ export function useScanDetail(id?: string) {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id, startPolling])
 
   const handleCancel = async () => {
     if (!id || canceling) return
@@ -88,5 +87,5 @@ export function useScanDetail(id?: string) {
     }
   }
 
-  return { scan, findings, statusInfo, loading, canceling, handleCancel, handleRestart }
+  return { scan, statusInfo, referenceDurationSeconds, loading, canceling, handleCancel, handleRestart, reloadScan: loadData }
 }

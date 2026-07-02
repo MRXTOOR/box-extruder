@@ -37,7 +37,7 @@ func harvestHTTPURLsFromFindings(findings []model.Finding, ev map[string]model.E
 			if raw == "" {
 				continue
 			}
-			if noise.IsAttackPayloadURL(raw) {
+			if noise.IsGarbageDiscoveryURL(raw) {
 				continue
 			}
 			u, ok := normalizeDiscoveryURL(raw, preserveQuery)
@@ -92,7 +92,7 @@ func mergeSeedURLs(base, extra []string) []string {
 func feedAppend(seen map[string]struct{}, feed *[]string, urls []string) {
 	for _, u := range urls {
 		u = strings.TrimSpace(u)
-		if u == "" {
+		if u == "" || noise.IsGarbageDiscoveryURL(u) {
 			continue
 		}
 		if _, ok := seen[u]; ok {

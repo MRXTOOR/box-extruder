@@ -11,6 +11,16 @@ export interface Scan {
   createdAt: string
   updatedAt: string
   finishedAt?: string
+  findingsCount?: number
+  discoveryUrlsCount?: number
+  endpointCount?: number
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export type ScanStatus = 

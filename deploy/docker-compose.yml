@@ -93,8 +93,10 @@ services:
       - WORK_DIR=/workspace/work
       - DAST_ZAP_LOCAL=1
       - DAST_ZAP_PORT=9090
-      - DAST_SKIP_ZAP=1
-      - DAST_WORKER_CONCURRENCY=4
+      - DAST_WORKER_CONCURRENCY=${DAST_WORKER_CONCURRENCY:-4}
+      - DAST_ZAP_FEED_PROBE_MAX=${DAST_ZAP_FEED_PROBE_MAX:-500}
+      - DAST_HTTPX_DROP_4XX=${DAST_HTTPX_DROP_4XX:-0}
+      - DAST_NUCLEI_TEMPLATES_DIR=/opt/nuclei-templates
     volumes:
       - ../work:/workspace/work
       - ../templates:/workspace/templates:ro

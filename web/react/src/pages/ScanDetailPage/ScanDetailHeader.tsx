@@ -7,11 +7,12 @@ import { ScanStatusBadge } from '../../shared/ui/ScanStatusBadge'
 import { downloadReport, openReportInNewTab } from '../../shared/lib/download'
 import styles from './ScanDetailPage.module.css'
 
-const STEPS = ['Katana', 'ZAP Baseline', 'Wapiti', 'Nuclei']
+const STEPS = ['Katana', 'httpx', 'ZAP Baseline', 'Wapiti', 'Nuclei']
 
 interface ScanDetailHeaderProps {
   scan: Scan
   statusInfo: ScanStatusResponse | null
+  referenceDurationSeconds: number | null
   isRunning: boolean
   isTerminal: boolean
   canceling: boolean
@@ -53,11 +54,11 @@ function StepStateIcon({ kind }: { kind: string }) {
 }
 
 export function ScanDetailHeader(props: ScanDetailHeaderProps) {
-  const { scan, statusInfo, isRunning, isTerminal, canceling } = props
+  const { scan, statusInfo, referenceDurationSeconds, isRunning, isTerminal, canceling } = props
   const stepItems = useMemo(() => buildStepItems(statusInfo), [statusInfo])
   const timeEstimate = useMemo(
-    () => estimateScanTime(statusInfo, scan.status),
-    [statusInfo, scan.status],
+    () => estimateScanTime(statusInfo, scan.status, referenceDurationSeconds),
+    [statusInfo, scan.status, referenceDurationSeconds],
   )
   const jobId = scan.jobId || scan.id
   const progressPct = timeEstimate?.progressPercent ?? statusInfo?.progress ?? 0

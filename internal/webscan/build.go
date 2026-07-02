@@ -81,8 +81,20 @@ func applyTargetsAndScope(cfg *config.ScanAsCode, target, baseTarget string, sta
 		StartPoints: starts,
 	}}
 	cfg.Scope.Allow = []string{scopeRegexFromBase(baseTarget)}
-	cfg.Scope.Deny = []string{
+	cfg.Scope.Deny = defaultScopeDeny()
+	cfg.Noise.Suppression.Exclude = append(cfg.Noise.Suppression.Exclude, config.SuppressionRule{
+		RuleID: "10027",
+		Reason: "SPA CRA boilerplate comments",
+	})
+}
+
+func defaultScopeDeny() []string {
+	return []string{
 		`.*\.(ttf|woff2?|eot|otf|png|jpg|jpeg|gif|svg|ico|webp|mp4|mp3|pdf|zip|gz)(\?.*)?$`,
+		`.*PUBLIC_URL.*`,
+		`.*%25.*%25.*`,
+		`.*/manifest\.json(\?.*)?$`,
+		`.*/static/.*`,
 	}
 }
 
@@ -109,7 +121,7 @@ func zapTimings(opts CreateOptions) (spiderMinutes, passiveWaitSecs int) {
 	if opts.ZapSpiderMinutes != nil && *opts.ZapSpiderMinutes > 0 {
 		spiderMinutes = *opts.ZapSpiderMinutes
 	}
-	passiveWaitSecs = 180
+	passiveWaitSecs = 120
 	if opts.ZapPassiveSecs != nil && *opts.ZapPassiveSecs > 0 {
 		passiveWaitSecs = *opts.ZapPassiveSecs
 	}
@@ -179,7 +191,7 @@ func applyInferredStartPoints(cfg *config.ScanAsCode, opts CreateOptions) {
 	}
 }
 
-// buildScanPlan assembles the default katana → ZAP → wapiti → nuclei plan.
+// buildScanPlan assembles the default katana → httpx → ZAP → wapiti → nuclei plan.
 func buildScanPlan(katDepth, zapSpiderMin, passiveWait int) []config.ScanStep {
 	return []config.ScanStep{
 		{
@@ -190,17 +202,21 @@ func buildScanPlan(katDepth, zapSpiderMin, passiveWait int) []config.ScanStep {
 			KatanaExtraArgs: []string{"-jc"},
 		},
 		{
+			StepType: "httpxProbe",
+			Enabled:  true,
+		},
+		{
 			StepType:               "zapBaseline",
-			Enabled:                false, // временно: %PUBLIC_URL% в SPA Сферы раздувает обход до 60k+ URL
+			Enabled:                true,
 			ZAPAutomationFramework: true,
 			ZAPSpiderTraditional:   true,
-			// SPA targets (like Juice Shop) require Ajax spider to discover in-app routes/endpoints.
 			ZAPSpiderAjax:           true,
 			ZAPMaxSpiderMinutes:     zapSpiderMin,
 			ZAPPassiveWaitSeconds:   passiveWait,
 			ZAPContextExcludeStatic: true,
 			ZAPAjaxEventWait:        1000,
 			ZAPAjaxReloadWait:       1000,
+			ZAPAjaxMaxCrawlStates:   200,
 		},
 		{
 			StepType:        "wapiti",

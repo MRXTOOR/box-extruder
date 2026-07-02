@@ -1,4 +1,4 @@
-import { ScanStatusResponse } from '../../entities/Scan/model/types'
+import { Scan, ScanStatusResponse } from '../../entities/Scan/model/types'
 import { isTerminalStatus } from './scanStatus'
 
 export interface ScanTimeEstimate {
@@ -6,27 +6,52 @@ export interface ScanTimeEstimate {
   remainingSeconds: number | null
   totalSeconds: number | null
   progressPercent: number | null
-  /** Short line for the detail header, e.g. "~25 мин осталось" */
   summary: string
-  /** Secondary line, e.g. "прошло 12 мин · всего ~45 мин" */
   detail: string | null
 }
 
-const DEFAULT_PLAN_SECONDS = 180 + 900 + 300 // katana + wapiti + nuclei (ZAP временно отключён)
+const REFERENCE_TERMINAL = new Set(['SUCCEEDED', 'PARTIAL_SUCCESS'])
 
-const STEP_SECONDS: Record<string, number> = {
-  katana: 180,
-  zapBaseline: 15 * 60 + 180,
-  wapiti: 900,
-  nucleiTemplates: 300,
-  nucleiCLI: 300,
+/** Same origin as backend scope base: scheme://host */
+export function normalizeTargetKey(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl.trim())
+    if (!u.protocol || !u.host) return rawUrl.trim().toLowerCase()
+    return `${u.protocol}//${u.host.toLowerCase()}`
+  } catch {
+    return rawUrl.trim().toLowerCase()
+  }
 }
 
-function stepSeconds(stepType: string): number {
-  if (stepType === 'nucleiTemplates' || stepType === 'nucleiCLI') {
-    return STEP_SECONDS.nucleiTemplates
+export function scanDurationSeconds(scan: Scan): number | null {
+  if (!scan.finishedAt) return null
+  const start = new Date(scan.createdAt).getTime()
+  const end = new Date(scan.finishedAt).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  return Math.round((end - start) / 1000)
+}
+
+/** Duration of the most recent completed scan of the same target (excluding current). */
+export function findReferenceDurationSeconds(scans: Scan[], current: Scan): number | null {
+  const key = normalizeTargetKey(current.targetUrl)
+  const currentIds = new Set([current.id, current.jobId].filter(Boolean))
+
+  let bestDuration: number | null = null
+  let bestFinishedAt = 0
+
+  for (const s of scans) {
+    if (currentIds.has(s.id) || currentIds.has(s.jobId)) continue
+    if (normalizeTargetKey(s.targetUrl) !== key) continue
+    if (!REFERENCE_TERMINAL.has(s.status)) continue
+    const dur = scanDurationSeconds(s)
+    if (!dur || dur <= 0) continue
+    const finished = s.finishedAt ? new Date(s.finishedAt).getTime() : 0
+    if (finished >= bestFinishedAt) {
+      bestFinishedAt = finished
+      bestDuration = dur
+    }
   }
-  return STEP_SECONDS[stepType] ?? 120
+  return bestDuration
 }
 
 export function formatDuration(seconds: number): string {
@@ -43,92 +68,42 @@ export function formatDuration(seconds: number): string {
   return rem > 0 ? `${hours} ч ${rem} мин` : `${hours} ч`
 }
 
-function estimateFromSteps(status: ScanStatusResponse, elapsed: number): ScanTimeEstimate {
-  const steps = status.steps ?? []
-  let doneWeight = 0
-  let remainingWeight = 0
-
-  for (const step of steps) {
-    const w = stepSeconds(step.stepType || '')
-    const st = (step.status || 'PENDING').toUpperCase()
-    if (st === 'SUCCEEDED' || st === 'FAILED' || st === 'SKIPPED') {
-      doneWeight += w
-    } else if (st === 'RUNNING') {
-      doneWeight += w * 0.45
-      remainingWeight += w * 0.55
-    } else {
-      remainingWeight += w
-    }
-  }
-
-  const total = Math.max(elapsed + remainingWeight, doneWeight + remainingWeight, DEFAULT_PLAN_SECONDS)
-  const remaining = Math.max(0, Math.round(total - elapsed))
-
-  return {
-    elapsedSeconds: elapsed,
-    remainingSeconds: remaining,
-    totalSeconds: Math.round(total),
-    progressPercent: total > 0 ? Math.min(99, Math.round((elapsed / total) * 100)) : null,
-    summary: remaining > 0 ? `~${formatDuration(remaining)} осталось` : 'завершается…',
-    detail: `прошло ${formatDuration(elapsed)} · всего ~${formatDuration(total)}`,
-  }
-}
-
-function estimateFromProgress(status: ScanStatusResponse, elapsed: number, progress: number): ScanTimeEstimate {
-  const total = Math.round((elapsed * 100) / progress)
-  const remaining = Math.max(0, total - elapsed)
-  return {
-    elapsedSeconds: elapsed,
-    remainingSeconds: remaining,
-    totalSeconds: total,
-    progressPercent: progress,
-    summary: `~${formatDuration(remaining)} осталось`,
-    detail: `прошло ${formatDuration(elapsed)} · всего ~${formatDuration(total)} · ${progress}%`,
-  }
-}
-
-/** Estimates remaining/total scan time from status polling data. */
+/**
+ * Estimates scan time only when a prior completed scan of the same target exists.
+ * Returns null on first scan — UI must hide the time card.
+ */
 export function estimateScanTime(
   statusInfo: ScanStatusResponse | null,
-  scanStatus?: string,
+  scanStatus: string | undefined,
+  referenceDurationSeconds: number | null | undefined,
 ): ScanTimeEstimate | null {
-  if (!statusInfo) {
+  if (!statusInfo || referenceDurationSeconds == null || referenceDurationSeconds <= 0) {
     return null
   }
 
   const elapsed = statusInfo.elapsedSeconds ?? 0
-  const progress = statusInfo.progress ?? 0
+  const total = referenceDurationSeconds
+  const progress = total > 0 ? Math.min(99, Math.round((elapsed / total) * 100)) : null
 
   if (scanStatus && isTerminalStatus(scanStatus)) {
-    if (elapsed <= 0) {
-      return null
-    }
+    if (elapsed <= 0) return null
     return {
       elapsedSeconds: elapsed,
       remainingSeconds: 0,
       totalSeconds: elapsed,
       progressPercent: 100,
       summary: `завершён за ${formatDuration(elapsed)}`,
-      detail: null,
+      detail: `ориентир ~${formatDuration(total)}`,
     }
   }
 
-  if (progress >= 5 && progress < 100 && elapsed >= 30) {
-    return estimateFromProgress(statusInfo, elapsed, progress)
-  }
-
-  if ((statusInfo.steps?.length ?? 0) > 0) {
-    return estimateFromSteps(statusInfo, elapsed)
-  }
-
-  const total = DEFAULT_PLAN_SECONDS
-  const remaining = Math.max(0, total - elapsed)
+  const remaining = Math.max(0, Math.round(total - elapsed))
   return {
     elapsedSeconds: elapsed,
     remainingSeconds: remaining,
     totalSeconds: total,
-    progressPercent: total > 0 ? Math.min(99, Math.round((elapsed / total) * 100)) : null,
-    summary: `~${formatDuration(remaining)} осталось`,
-    detail: `прошло ${formatDuration(elapsed)} · план ~${formatDuration(total)}`,
+    progressPercent: progress,
+    summary: remaining > 0 ? `~${formatDuration(remaining)} осталось` : 'завершается…',
+    detail: `прошло ${formatDuration(elapsed)} · всего ~${formatDuration(total)}`,
   }
 }

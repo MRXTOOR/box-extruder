@@ -14,12 +14,21 @@ import (
 func Apply(cfg config.ScanAsCode, in []model.Finding, evidenceByID map[string]model.Evidence) []model.Finding {
 	out := make([]model.Finding, 0, len(in))
 	seen := map[string]struct{}{}
+	passiveHostSeen := map[string]struct{}{}
 	for _, f := range in {
 		if IsCrawlTelemetryFinding(f) {
 			continue
 		}
 		f.LocationKey = BuildLocationKey(cfg.Noise.Dedupe, f)
 		key := f.LocationKey + "|" + f.RuleID
+		if isPassiveZAPRule(f.RuleID) {
+			host := normalizedHostFromLocationKey(f.LocationKey)
+			pkey := f.RuleID + "|host:" + host
+			if _, ok := passiveHostSeen[pkey]; ok {
+				continue
+			}
+			passiveHostSeen[pkey] = struct{}{}
+		}
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -231,4 +240,29 @@ func applyProgressive(cfg config.ScanAsCode, f model.Finding, evidenceByID map[s
 		// keep
 	}
 	return f
+}
+
+func isPassiveZAPRule(ruleID string) bool {
+	ruleID = strings.TrimSpace(ruleID)
+	if ruleID == "" {
+		return false
+	}
+	for _, c := range ruleID {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizedHostFromLocationKey(locationKey string) string {
+	raw := EndpointURLFromLocationKey(locationKey)
+	if raw == "" {
+		return strings.TrimSpace(locationKey)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
 }

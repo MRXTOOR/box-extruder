@@ -241,6 +241,28 @@ func TestFeedAppend_Dedup(t *testing.T) {
 	}
 }
 
+func TestFeedAppend_SkipsGarbage(t *testing.T) {
+	seen := make(map[string]struct{})
+	var feed []string
+	feedAppend(seen, &feed, []string{
+		"https://example.com/api/users",
+		"https://example.com/%PUBLIC_URL%/static/main.js",
+		"https://example.com/manifest.json",
+	})
+	if len(feed) != 1 || feed[0] != "https://example.com/api/users" {
+		t.Fatalf("garbage URLs must be skipped: %v", feed)
+	}
+}
+
+func TestHarvestHTTPURLs_SkipsGarbage(t *testing.T) {
+	f, ev := makeHTTPFinding("e1", "https://example.com/%PUBLIC_URL%/x")
+	got := harvestHTTPURLsFromFindings([]model.Finding{f},
+		map[string]model.Evidence{ev.EvidenceID: ev}, true)
+	if len(got) != 0 {
+		t.Fatalf("PUBLIC_URL must be filtered: %v", got)
+	}
+}
+
 func TestFeedAppend_SkipsEmpty(t *testing.T) {
 	seen := make(map[string]struct{})
 	var feed []string

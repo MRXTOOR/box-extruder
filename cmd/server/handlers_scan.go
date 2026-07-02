@@ -12,7 +12,6 @@ import (
 	"github.com/box-extruder/dast/internal/enterprise/auth"
 	"github.com/box-extruder/dast/internal/enterprise/db"
 	"github.com/box-extruder/dast/internal/enterprise/queue"
-	"github.com/box-extruder/dast/internal/noise"
 	"github.com/box-extruder/dast/internal/storage"
 	"github.com/box-extruder/dast/internal/webscan"
 	"github.com/google/uuid"
@@ -169,34 +168,21 @@ func (h *Handler) handleGetScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	findings, _ := db.GetFindingsByScanID(r.Context(), h.pool, scan.ID)
-	for i := range findings {
-		findings[i] = enrichFindingEndpoint(findings[i])
-	}
-	// Fallback for scans completed before DB persistence was enabled.
-	if len(findings) == 0 && (scan.Status == "SUCCEEDED" || scan.Status == "PARTIAL_SUCCESS" || scan.Status == "FAILED") {
-		if fileFindings, err := storage.LoadFindingsJSON(h.workDir, scan.JobID, "findings-final.json"); err == nil {
-			for _, f := range fileFindings {
-				findings = append(findings, db.Finding{
-					ID:           uuid.New().String(),
-					ScanID:       scan.ID,
-					Name:         f.Title,
-					Severity:     string(f.Severity),
-					Description:  f.Description,
-					EndpointPath: noise.EndpointURLFromLocationKey(f.LocationKey),
-				})
-			}
+	findingsCount, _ := db.CountFindingsByScanID(r.Context(), h.pool, scan.ID, db.FindingsQuery{})
+	if findingsCount == 0 && (scan.Status == "SUCCEEDED" || scan.Status == "PARTIAL_SUCCESS" || scan.Status == "FAILED") {
+		if legacy := loadLegacyFindingsSlice(h.workDir, scan); len(legacy) > 0 {
+			findingsCount = len(legacy)
 		}
 	}
 
 	resp := map[string]interface{}{
-		"id":         scan.ID,
-		"jobId":      scan.JobID,
-		"targetUrl":  scan.TargetURL,
-		"status":     scan.Status,
-		"createdAt":  scan.CreatedAt,
-		"finishedAt": scan.FinishedAt,
-		"findings":   findings,
+		"id":             scan.ID,
+		"jobId":          scan.JobID,
+		"targetUrl":      scan.TargetURL,
+		"status":         scan.Status,
+		"createdAt":      scan.CreatedAt,
+		"finishedAt":     scan.FinishedAt,
+		"findingsCount":  findingsCount,
 	}
 	if j, err := storage.ReadJob(h.workDir, scan.JobID); err == nil {
 		if j.DiscoveryURLsCount > 0 {
